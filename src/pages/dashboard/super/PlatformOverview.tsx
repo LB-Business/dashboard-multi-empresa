@@ -1,43 +1,59 @@
 import { DashboardTopbar } from "@/components/dashboard/DashboardTopbar";
 import { StatsCard } from "@/components/dashboard/StatsCard";
+import { LoadingState, ErrorState } from "@/components/dashboard/States";
 import { Building2, Users, Activity, TrendingUp } from "lucide-react";
-
-const recentActivity = [
-  { id: 1, action: "Negocio creado", detail: "Café Central — owner@cafe.com", time: "Hace 1 hora" },
-  { id: 2, action: "Owner registrado", detail: "Laura González — laura@tienda.com", time: "Hace 3 horas" },
-  { id: 3, action: "Negocio desactivado", detail: "Ropa Express", time: "Ayer" },
-  { id: 4, action: "Plan actualizado", detail: "Café Central → Pro", time: "Hace 2 días" },
-];
+import { useQuery } from "@tanstack/react-query";
+import { businessesService } from "@/services/businesses.service";
+import { usersService } from "@/services/users.service";
 
 export default function PlatformOverview() {
+  const businesses = useQuery({ queryKey: ["businesses"], queryFn: businessesService.getAll });
+  const users = useQuery({ queryKey: ["all-users"], queryFn: usersService.getAllGlobal });
+
+  const isLoading = businesses.isLoading || users.isLoading;
+  const isError = businesses.isError && users.isError;
+
+  const activeBusinesses = (businesses.data ?? []).filter((b) => b.status === "active").length;
+
   return (
     <div>
       <DashboardTopbar title="Platform Overview" subtitle="Resumen general de la plataforma" />
       <div className="p-6 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatsCard title="Negocios activos" value={34} description="+2 esta semana" icon={Building2} />
-          <StatsCard title="Usuarios totales" value={156} description="En toda la plataforma" icon={Users} />
-          <StatsCard title="Negocios nuevos (mes)" value={8} description="vs 5 mes anterior" icon={TrendingUp} />
-          <StatsCard title="Actividad hoy" value={47} description="Acciones registradas" icon={Activity} />
-        </div>
+        {isLoading ? (
+          <LoadingState />
+        ) : isError ? (
+          <ErrorState onRetry={() => { businesses.refetch(); users.refetch(); }} />
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatsCard title="Negocios activos" value={activeBusinesses} icon={Building2} />
+              <StatsCard title="Total negocios" value={businesses.data?.length ?? 0} icon={TrendingUp} />
+              <StatsCard title="Usuarios totales" value={users.data?.length ?? 0} icon={Users} />
+              <StatsCard title="Owners" value={(users.data ?? []).filter((u) => u.role === "OWNER").length} icon={Activity} />
+            </div>
 
-        <div className="rounded-lg border border-border bg-card">
-          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
-            <Activity className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">Actividad reciente de la plataforma</h2>
-          </div>
-          <div className="divide-y divide-border">
-            {recentActivity.map((item) => (
-              <div key={item.id} className="flex items-center justify-between px-5 py-3.5">
-                <div>
-                  <p className="text-sm text-foreground">{item.action}</p>
-                  <p className="text-xs text-muted-foreground">{item.detail}</p>
-                </div>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">{item.time}</span>
+            <div className="rounded-lg border border-border bg-card">
+              <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">Últimos negocios</h2>
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="divide-y divide-border">
+                {(businesses.data ?? []).slice(0, 5).map((biz) => (
+                  <div key={biz._id} className="flex items-center justify-between px-5 py-3.5">
+                    <div>
+                      <p className="text-sm text-foreground">{biz.name}</p>
+                      <p className="text-xs text-muted-foreground font-mono">/{biz.slug}</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground capitalize">{biz.status}</span>
+                  </div>
+                ))}
+                {(!businesses.data || businesses.data.length === 0) && (
+                  <div className="px-5 py-8 text-center text-sm text-muted-foreground">Sin negocios registrados</div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

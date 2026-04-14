@@ -1,8 +1,19 @@
 import { DashboardTopbar } from "@/components/dashboard/DashboardTopbar";
 import { SettingsBlock } from "@/components/dashboard/SettingsBlock";
 import { Input } from "@/components/ui/input";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export default function GlobalSettingsPage() {
+  const [platformName, setPlatformName] = useState("Mi Plataforma SaaS");
+  const [supportEmail, setSupportEmail] = useState("soporte@plataforma.com");
+  const [trialDays, setTrialDays] = useState("14");
+
+  // These would connect to a global settings API endpoint
+  const handleSave = (field: string) => {
+    toast.success(`${field} guardado`);
+  };
+
   return (
     <div>
       <DashboardTopbar title="Global Settings" subtitle="Configuración general de la plataforma" />
@@ -11,40 +22,26 @@ export default function GlobalSettingsPage() {
           title="Platform Name"
           description="Nombre público de la plataforma SaaS."
           footerNote="Máximo 32 caracteres."
-          onSave={() => {}}
+          onSave={() => handleSave("Platform Name")}
         >
-          <Input defaultValue="Mi Plataforma SaaS" className="bg-secondary border-border max-w-md" />
+          <Input value={platformName} onChange={(e) => setPlatformName(e.target.value)} className="bg-secondary border-border max-w-md" />
         </SettingsBlock>
 
         <SettingsBlock
           title="Support Email"
           description="Email de soporte que recibirán los usuarios de la plataforma."
-          onSave={() => {}}
+          onSave={() => handleSave("Support Email")}
         >
-          <Input defaultValue="soporte@plataforma.com" className="bg-secondary border-border max-w-md" />
+          <Input value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} className="bg-secondary border-border max-w-md" />
         </SettingsBlock>
 
         <SettingsBlock
           title="Default Trial Days"
           description="Cantidad de días de prueba gratuita para negocios nuevos."
           footerNote="Valor numérico."
-          onSave={() => {}}
+          onSave={() => handleSave("Trial Days")}
         >
-          <Input type="number" defaultValue="14" className="bg-secondary border-border max-w-[120px]" />
-        </SettingsBlock>
-
-        <SettingsBlock
-          title="Maintenance Mode"
-          description="Activar modo mantenimiento deshabilitará el acceso para todos los usuarios excepto SUPER_ADMIN."
-          footerNote="Usar con precaución."
-          onSave={() => {}}
-        >
-          <div className="flex items-center gap-3">
-            <div className="h-5 w-9 rounded-full bg-secondary border border-border relative cursor-pointer">
-              <div className="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-muted-foreground transition-transform" />
-            </div>
-            <span className="text-sm text-muted-foreground">Desactivado</span>
-          </div>
+          <Input type="number" value={trialDays} onChange={(e) => setTrialDays(e.target.value)} className="bg-secondary border-border max-w-[120px]" />
         </SettingsBlock>
       </div>
     </div>
