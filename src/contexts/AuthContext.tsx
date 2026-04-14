@@ -1,5 +1,7 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { AuthUser, AuthState, UserRole } from "@/types/auth";
+import { authService, AuthUserResponse } from "@/services/auth.service";
+import { ApiError } from "@/lib/api";
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
@@ -8,74 +10,82 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Mock users for demo — replace with real API calls
-const MOCK_USERS: Record<string, AuthUser & { password: string }> = {
-  "super@platform.com": {
-    id: "u1",
-    name: "Platform Admin",
-    email: "super@platform.com",
-    role: "SUPER_ADMIN",
-    password: "admin123",
-  },
-  "owner@negocio.com": {
-    id: "u2",
-    name: "Yamil Batte",
-    email: "owner@negocio.com",
-    role: "OWNER",
-    businessId: "b1",
-    businessName: "Mi Negocio",
-    password: "owner123",
-  },
-  "admin@negocio.com": {
-    id: "u3",
-    name: "Laura González",
-    email: "admin@negocio.com",
-    role: "ADMIN",
-    businessId: "b1",
-    businessName: "Mi Negocio",
-    password: "admin123",
-  },
-  "editor@negocio.com": {
-    id: "u4",
-    name: "Martín López",
-    email: "editor@negocio.com",
-    role: "EDITOR",
-    businessId: "b1",
-    businessName: "Mi Negocio",
-    password: "editor123",
-  },
-};
+function mapApiUser(u: AuthUserResponse): AuthUser {
+  return {
+    id: u._id,
+    name: u.name,
+    email: u.email,
+    role: u.role as UserRole,
+    businessId: u.businessId || u.business?._id,
+    businessName: u.business?.name,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
-    token: null,
+    token: localStorage.getItem("accessToken"),
     isAuthenticated: false,
-    isLoading: false,
+    isLoading: true, // start loading to check persisted session
   });
+
+  // On mount, check if we have a stored token and fetch user
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setState((s) => ({ ...s, isLoading: false }));
+      return;
+    }
+    authService
+      .me()
+      .then((apiUser) => {
+        setState({
+          user: mapApiUser(apiUser),
+          token,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+      })
+      .catch(() => {
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
+      });
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     setState((s) => ({ ...s, isLoading: true }));
+    try {
+      const res = await authService.login({ email, password });
+      localStorage.setItem("accessToken", res.accessToken);
+      if (res.refreshToken) localStorage.setItem("refreshToken", res.refreshToken);
 
-    // Simulate API delay
-    await new Promise((r) => setTimeout(r, 1000));
+      // If login response has user data, use it; otherwise fetch /auth/me
+      let user: AuthUser;
+      if (res.user) {
+        user = mapApiUser(res.user);
+      } else {
+        const me = await authService.me();
+        user = mapApiUser(me);
+      }
 
-    const mockUser = MOCK_USERS[email];
-    if (!mockUser || mockUser.password !== password) {
+      setState({
+        user,
+        token: res.accessToken,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (err) {
       setState((s) => ({ ...s, isLoading: false }));
-      throw new Error("Credenciales inválidas");
+      if (err instanceof ApiError) throw err;
+      throw new Error("Error de conexión con el servidor");
     }
-
-    const { password: _, ...user } = mockUser;
-    setState({
-      user,
-      token: "mock-jwt-token",
-      isAuthenticated: true,
-      isLoading: false,
-    });
   }, []);
 
   const logout = useCallback(() => {
+    authService.logout().catch(() => {}); // fire and forget
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
     setState({ user: null, token: null, isAuthenticated: false, isLoading: false });
   }, []);
 
