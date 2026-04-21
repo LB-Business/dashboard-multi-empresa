@@ -9,15 +9,31 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { businessesService } from "@/services/businesses.service";
 import { toast } from "sonner";
 
+const businessTypeOptions = [
+  { value: "concesionaria", label: "Concesionaria" },
+  { value: "barberia", label: "Barbería" },
+  { value: "tienda_ropa", label: "Tienda de ropa" },
+  { value: "tienda_comida", label: "Tienda de comida" },
+  { value: "lavadero_autos", label: "Lavadero de autos" },
+  { value: "otro", label: "Otro" },
+];
+
 export default function CreateBusinessPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
   const [form, setForm] = useState({
-    name: "", slug: "", ownerName: "", ownerEmail: "", ownerPassword: "",
+    name: "",
+    slug: "",
+    businessType: "",
   });
 
-  const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [field]: e.target.value }));
+  const set =
+    (field: string) =>
+    (
+      e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    ) =>
+      setForm((f) => ({ ...f, [field]: e.target.value }));
 
   const mutation = useMutation({
     mutationFn: () => businessesService.create(form),
@@ -26,58 +42,89 @@ export default function CreateBusinessPage() {
       toast.success("Negocio creado exitosamente");
       navigate("/dashboard/businesses");
     },
-    onError: (err: any) => toast.error(err.message || "Error al crear negocio"),
+    onError: (err: any) =>
+      toast.error(err.message || "Error al crear negocio"),
   });
 
   return (
     <div>
       <DashboardTopbar
         title="Nuevo negocio"
+        subtitle="Crear un nuevo negocio en la plataforma"
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/businesses")}>
-              <ArrowLeft className="h-4 w-4 mr-1.5" />Volver
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/dashboard/businesses")}
+            >
+              <ArrowLeft className="h-4 w-4 mr-1.5" />
+              Volver
             </Button>
-            <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+
+            <Button
+              size="sm"
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending}
+            >
               {mutation.isPending ? "Creando..." : "Crear negocio"}
             </Button>
           </div>
         }
       />
+
       <div className="p-6 max-w-2xl space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Información del negocio</h2>
+          <h2 className="text-sm font-semibold text-foreground">
+            Información del negocio
+          </h2>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Nombre del negocio</Label>
-              <Input placeholder="Ej: Café Central" value={form.name} onChange={set("name")} className="bg-secondary border-border" />
+              <Input
+                placeholder="Ej: Café Central"
+                value={form.name}
+                onChange={set("name")}
+                className="bg-secondary border-border"
+              />
             </div>
+
             <div className="space-y-2">
               <Label>Slug</Label>
               <div className="flex items-center rounded-md border border-border bg-secondary">
-                <span className="px-3 text-xs text-muted-foreground border-r border-border">app.com/</span>
-                <Input placeholder="cafe-central" value={form.slug} onChange={set("slug")} className="border-0 bg-transparent" />
+                <span className="px-3 text-xs text-muted-foreground border-r border-border">
+                  app.com/
+                </span>
+                <Input
+                  placeholder="cafe-central"
+                  value={form.slug}
+                  onChange={set("slug")}
+                  className="border-0 bg-transparent"
+                />
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Owner del negocio</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Nombre del owner</Label>
-              <Input placeholder="Nombre completo" value={form.ownerName} onChange={set("ownerName")} className="bg-secondary border-border" />
-            </div>
-            <div className="space-y-2">
-              <Label>Email del owner</Label>
-              <Input type="email" placeholder="owner@email.com" value={form.ownerEmail} onChange={set("ownerEmail")} className="bg-secondary border-border" />
-            </div>
+          <div className="space-y-2 max-w-md">
+            <Label>Tipo de negocio</Label>
+            <select
+              value={form.businessType}
+              onChange={set("businessType")}
+              className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
+            >
+              <option value="">Seleccionar tipo de negocio</option>
+              {businessTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="space-y-2">
-            <Label>Contraseña temporal</Label>
-            <Input type="password" placeholder="••••••••" value={form.ownerPassword} onChange={set("ownerPassword")} className="bg-secondary border-border max-w-sm" />
-          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Luego podés crear y asignar un owner desde el panel de owners.
+          </p>
         </div>
       </div>
     </div>

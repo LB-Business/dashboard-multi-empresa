@@ -7,48 +7,98 @@ import { businessesService } from "@/services/businesses.service";
 import { usersService } from "@/services/users.service";
 
 export default function PlatformOverview() {
-  const businesses = useQuery({ queryKey: ["businesses"], queryFn: businessesService.getAll });
-  const users = useQuery({ queryKey: ["all-users"], queryFn: usersService.getAllGlobal });
+  const businesses = useQuery({
+    queryKey: ["businesses"],
+    queryFn: businessesService.getAll,
+  });
+
+  const users = useQuery({
+    queryKey: ["all-users"],
+    queryFn: usersService.getAllGlobal,
+  });
 
   const isLoading = businesses.isLoading || users.isLoading;
-  const isError = businesses.isError && users.isError;
+  const isError = businesses.isError || users.isError;
 
-  const activeBusinesses = (businesses.data ?? []).filter((b) => b.status === "active").length;
+  const businessList = Array.isArray(businesses.data) ? businesses.data : [];
+  const usersList = Array.isArray(users.data) ? users.data : [];
+
+  const activeBusinesses = businessList.filter(
+    (b) => b.isActive === true
+  ).length;
 
   return (
     <div>
-      <DashboardTopbar title="Platform Overview" subtitle="Resumen general de la plataforma" />
+      <DashboardTopbar
+        title="Platform Overview"
+        subtitle="Resumen general de la plataforma"
+      />
+
       <div className="p-6 space-y-6">
         {isLoading ? (
           <LoadingState />
         ) : isError ? (
-          <ErrorState onRetry={() => { businesses.refetch(); users.refetch(); }} />
+          <ErrorState
+            onRetry={() => {
+              businesses.refetch();
+              users.refetch();
+            }}
+          />
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatsCard title="Negocios activos" value={activeBusinesses} icon={Building2} />
-              <StatsCard title="Total negocios" value={businesses.data?.length ?? 0} icon={TrendingUp} />
-              <StatsCard title="Usuarios totales" value={users.data?.length ?? 0} icon={Users} />
-              <StatsCard title="Owners" value={(users.data ?? []).filter((u) => u.role === "OWNER").length} icon={Activity} />
+              <StatsCard
+                title="Negocios activos"
+                value={activeBusinesses}
+                icon={Building2}
+              />
+              <StatsCard
+                title="Total negocios"
+                value={businessList.length}
+                icon={TrendingUp}
+              />
+              <StatsCard
+                title="Usuarios totales"
+                value={usersList.length}
+                icon={Users}
+              />
+              <StatsCard
+                title="Owners"
+                value={usersList.filter((u) => u.role === "OWNER").length}
+                icon={Activity}
+              />
             </div>
 
             <div className="rounded-lg border border-border bg-card">
               <div className="flex items-center gap-2 border-b border-border px-5 py-4">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold text-foreground">Últimos negocios</h2>
+                <h2 className="text-sm font-semibold text-foreground">
+                  Últimos negocios
+                </h2>
               </div>
+
               <div className="divide-y divide-border">
-                {(businesses.data ?? []).slice(0, 5).map((biz) => (
-                  <div key={biz._id} className="flex items-center justify-between px-5 py-3.5">
+                {businessList.slice(0, 5).map((biz) => (
+                  <div
+                    key={biz.id ?? biz._id ?? biz.slug}
+                    className="flex items-center justify-between px-5 py-3.5"
+                  >
                     <div>
                       <p className="text-sm text-foreground">{biz.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">/{biz.slug}</p>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        /{biz.slug}
+                      </p>
                     </div>
-                    <span className="text-xs text-muted-foreground capitalize">{biz.status}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {biz.isActive ? "Activo" : "Inactivo"}
+                    </span>
                   </div>
                 ))}
-                {(!businesses.data || businesses.data.length === 0) && (
-                  <div className="px-5 py-8 text-center text-sm text-muted-foreground">Sin negocios registrados</div>
+
+                {businessList.length === 0 && (
+                  <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    Sin negocios registrados
+                  </div>
                 )}
               </div>
             </div>

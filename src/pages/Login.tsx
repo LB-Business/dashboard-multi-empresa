@@ -2,7 +2,7 @@ import { AuthLayout } from "@/components/auth/AuthLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Link, useNavigate, Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
@@ -13,8 +13,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const { login, isLoading, isAuthenticated } = useAuth();
-  const navigate = useNavigate();
+
+  const { login, isLoading, isAuthenticated, user } = useAuth();
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -23,18 +23,23 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       toast.success("Sesión iniciada correctamente");
-      navigate("/dashboard");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       const msg = err?.message || "Credenciales inválidas";
       setError(msg);
+      toast.error(msg);
     }
   };
 
   return (
-    <AuthLayout title="Iniciar sesión" subtitle="Ingresá a tu panel de administración">
+    <AuthLayout
+      title="Iniciar sesión"
+      subtitle="Ingresá a tu panel de administración"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2.5 animate-fade-in">
@@ -42,6 +47,7 @@ export default function LoginPage() {
             <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
+
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -51,16 +57,22 @@ export default function LoginPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="bg-secondary border-border"
+            autoComplete="email"
             required
           />
         </div>
+
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Contraseña</Label>
-            <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <Link
+              to="/forgot-password"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
               ¿Olvidaste tu contraseña?
             </Link>
           </div>
+
           <div className="relative">
             <Input
               id="password"
@@ -69,24 +81,36 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="bg-secondary border-border pr-10"
+              autoComplete="current-password"
               required
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
+              onClick={() => setShowPassword((prev) => !prev)}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label={
+                showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+              }
             >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
             </button>
           </div>
         </div>
+
         <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? "Ingresando..." : "Ingresar"}
         </Button>
       </form>
+
       <p className="text-center text-sm text-muted-foreground">
         ¿No tenés cuenta?{" "}
-        <Link to="/signup" className="text-foreground hover:underline">Crear cuenta</Link>
+        <Link to="/signup" className="text-foreground hover:underline">
+          Crear cuenta
+        </Link>
       </p>
     </AuthLayout>
   );

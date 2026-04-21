@@ -13,6 +13,8 @@ import {
   Globe,
   UserPlus,
   Shield,
+  Wallet,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,8 @@ const navItems: NavItem[] = [
   { title: "Overview", icon: LayoutDashboard, path: "/dashboard", roles: ["OWNER", "ADMIN", "EDITOR"] },
   { title: "Products", icon: Package, path: "/dashboard/products", roles: ["OWNER", "ADMIN", "EDITOR"] },
   { title: "Expenses", icon: Receipt, path: "/dashboard/expenses", roles: ["OWNER", "ADMIN"] },
+  { title: "Finance", icon: Wallet, path: "/dashboard/finance", roles: ["OWNER", "ADMIN"] },
+  { title: "Movements", icon: ArrowLeftRight, path: "/dashboard/movements", roles: ["OWNER", "ADMIN", "EDITOR"] },
   { title: "Calendar", icon: CalendarDays, path: "/dashboard/calendar", roles: ["OWNER", "ADMIN", "EDITOR"] },
   { title: "Users", icon: Users, path: "/dashboard/users", roles: ["OWNER"] },
   { title: "Settings", icon: Settings, path: "/dashboard/settings", roles: ["OWNER"] },
@@ -70,7 +74,6 @@ export function DashboardSidebar() {
         collapsed ? "w-16" : "w-60"
       )}
     >
-      {/* Logo */}
       <div className="flex h-14 items-center border-b border-border px-4">
         {role === "SUPER_ADMIN" ? (
           <Shield className="h-5 w-5 shrink-0 text-foreground" />
@@ -90,14 +93,14 @@ export function DashboardSidebar() {
         </button>
       </div>
 
-      {/* Role badge */}
       {!collapsed && role && (
         <div className="px-4 py-2 border-b border-border">
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">{role.replace("_", " ")}</span>
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
+            {role.replace("_", " ")}
+          </span>
         </div>
       )}
 
-      {/* Nav */}
       <nav className="flex-1 space-y-1 px-2 py-3 overflow-y-auto">
         {visibleItems.map((item) => (
           <button
@@ -116,7 +119,6 @@ export function DashboardSidebar() {
         ))}
       </nav>
 
-      {/* Footer - user info */}
       <div className="border-t border-border p-3 space-y-1">
         {!collapsed && user && (
           <div className="px-2.5 py-1.5">
