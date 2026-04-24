@@ -54,6 +54,9 @@ const integerFormatter = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 0,
 });
 
+const MAX_IMAGE_SIZE_MB = 1;
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+
 function formatMoney(value?: number | null) {
   return moneyFormatter.format(Number(value ?? 0));
 }
@@ -446,7 +449,7 @@ export default function ProductFormPage() {
         name: generatedName,
       };
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     form.vehicleDetails?.brand,
     form.vehicleDetails?.model,
@@ -919,12 +922,39 @@ export default function ProductFormPage() {
     const files = e.target.files;
     if (!files?.length) return;
 
+    const selectedFiles = Array.from(files);
+
+    const invalidFiles = selectedFiles.filter(
+      (file) => !file.type.startsWith("image/"),
+    );
+
+    if (invalidFiles.length > 0) {
+      toast.error("Solo podés subir archivos de imagen.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const oversizedFiles = selectedFiles.filter(
+      (file) => file.size > MAX_IMAGE_SIZE_BYTES,
+    );
+
+    if (oversizedFiles.length > 0) {
+      const fileNames = oversizedFiles.map((file) => file.name).join(", ");
+
+      toast.error(
+        `Las imágenes no pueden superar ${MAX_IMAGE_SIZE_MB}MB. Archivo(s): ${fileNames}`,
+      );
+
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
 
     try {
       const uploadedImages: ProductImageForm[] = [];
 
-      for (const file of Array.from(files)) {
+      for (const file of selectedFiles) {
         const res = await uploadsService.uploadImage(file);
 
         uploadedImages.push({
@@ -948,7 +978,7 @@ export default function ProductFormPage() {
       });
 
       toast.success(`${uploadedImages.length} imagen(es) subida(s)`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error(err?.message || "Error al subir imagen");
     } finally {
@@ -982,7 +1012,7 @@ export default function ProductFormPage() {
       try {
         await uploadsService.deleteImage(publicId);
         toast.success("Imagen eliminada");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         toast.error(
           err?.message || "No se pudo borrar la imagen de Cloudinary",
@@ -1334,7 +1364,12 @@ export default function ProductFormPage() {
                 Variantes de ropa
               </h2>
 
-              <Button type="button" variant="outline" size="sm" onClick={addVariant}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addVariant}
+              >
                 <Plus className="h-4 w-4 mr-1.5" />
                 Agregar variante
               </Button>
@@ -1562,7 +1597,7 @@ export default function ProductFormPage() {
                 : "Arrastrá imágenes acá o hacé click para subir"}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              PNG, JPG hasta 6MB
+              PNG, JPG o WEBP. Máximo {MAX_IMAGE_SIZE_MB}MB por imagen.
             </p>
           </div>
 
