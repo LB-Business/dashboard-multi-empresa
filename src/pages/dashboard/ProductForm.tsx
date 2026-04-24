@@ -54,9 +54,6 @@ const integerFormatter = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 0,
 });
 
-const MAX_IMAGE_SIZE_MB = 1;
-const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
-
 function formatMoney(value?: number | null) {
   return moneyFormatter.format(Number(value ?? 0));
 }
@@ -934,21 +931,6 @@ export default function ProductFormPage() {
       return;
     }
 
-    const oversizedFiles = selectedFiles.filter(
-      (file) => file.size > MAX_IMAGE_SIZE_BYTES,
-    );
-
-    if (oversizedFiles.length > 0) {
-      const fileNames = oversizedFiles.map((file) => file.name).join(", ");
-
-      toast.error(
-        `Las imágenes no pueden superar ${MAX_IMAGE_SIZE_MB}MB. Archivo(s): ${fileNames}`,
-      );
-
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
     setUploading(true);
 
     try {
@@ -978,7 +960,7 @@ export default function ProductFormPage() {
       });
 
       toast.success(`${uploadedImages.length} imagen(es) subida(s)`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error(err?.message || "Error al subir imagen");
     } finally {
@@ -1012,7 +994,7 @@ export default function ProductFormPage() {
       try {
         await uploadsService.deleteImage(publicId);
         toast.success("Imagen eliminada");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         toast.error(
           err?.message || "No se pudo borrar la imagen de Cloudinary",
@@ -1591,13 +1573,16 @@ export default function ProductFormPage() {
             ) : (
               <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
             )}
+
             <p className="text-sm text-muted-foreground">
               {uploading
-                ? "Subiendo..."
+                ? "Optimizando y subiendo..."
                 : "Arrastrá imágenes acá o hacé click para subir"}
             </p>
+
             <p className="text-xs text-muted-foreground mt-1">
-              PNG, JPG o WEBP. Máximo {MAX_IMAGE_SIZE_MB}MB por imagen.
+              PNG, JPG o WEBP hasta 10MB. La app reduce cada imagen por debajo
+              de 1MB antes de subirla.
             </p>
           </div>
 
