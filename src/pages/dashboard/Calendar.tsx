@@ -161,6 +161,7 @@ export default function CalendarPage() {
 
   const filteredEvents = useMemo(() => {
     return allEvents.filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (event: any) => filter === "all" || event.extendedProps?.type === filter
     );
   }, [allEvents, filter]);
@@ -168,6 +169,7 @@ export default function CalendarPage() {
   const selectedDayEvents = useMemo(() => {
     if (!selectedDate) return [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return filteredEvents.filter((event: any) => {
       const rawDate = event.start;
       const localDate = formatLocalDateKey(rawDate);
@@ -201,6 +203,7 @@ export default function CalendarPage() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleDateClick = (info: any) => {
     setSelectedDate(info.dateStr);
   };
@@ -503,6 +506,7 @@ export default function CalendarPage() {
                   </div>
                 ) : (
                   <div className="mt-4 space-y-2">
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     {selectedDayEvents.map((event: any) => {
                       const eventType = (event.extendedProps?.type ||
                         "reminder") as EventType;
@@ -606,6 +610,7 @@ export default function CalendarPage() {
                 </div>
               ) : (
                 <div className="mt-4 space-y-2">
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   {filteredEvents.map((event: any) => {
                     const eventType = (event.extendedProps?.type ||
                       "reminder") as EventType;

@@ -192,6 +192,7 @@ export default function SettingsPage() {
       toast.success("Configuración guardada");
       setSavingField(null);
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (err: any) => {
       toast.error(err.message || "Error al guardar");
       setSavingField(null);
@@ -206,6 +207,7 @@ export default function SettingsPage() {
       toast.success("Configuración del calendario guardada");
       setSavingField(null);
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (err: any) => {
       toast.error(err.message || "Error al guardar configuración del calendario");
       setSavingField(null);
@@ -255,6 +257,7 @@ export default function SettingsPage() {
       const res = await uploadsService.uploadImage(file);
       mutation.mutate({ logoUrl: res.url });
       setForm((f) => ({ ...f, logoUrl: res.url }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error(err.message || "Error al subir logo");
       setSavingField(null);

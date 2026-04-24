@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 
 export type ProductType = "general" | "auto" | "ropa";
+
 export type ProductStatus =
   | "draft"
   | "published"
@@ -8,6 +9,7 @@ export type ProductStatus =
   | "sold"
   | "archived"
   | "out_of_stock";
+
 export type Currency = "ARS" | "USD";
 
 export interface ProductImage {

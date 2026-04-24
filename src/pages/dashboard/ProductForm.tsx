@@ -446,6 +446,7 @@ export default function ProductFormPage() {
         name: generatedName,
       };
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     form.vehicleDetails?.brand,
     form.vehicleDetails?.model,
@@ -906,6 +907,7 @@ export default function ProductFormPage() {
       navigate("/dashboard/products");
     },
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (err: any) => {
       toast.error(err?.message || "Error al guardar");
     },
@@ -946,6 +948,7 @@ export default function ProductFormPage() {
       });
 
       toast.success(`${uploadedImages.length} imagen(es) subida(s)`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error(err?.message || "Error al subir imagen");
     } finally {
@@ -979,6 +982,7 @@ export default function ProductFormPage() {
       try {
         await uploadsService.deleteImage(publicId);
         toast.success("Imagen eliminada");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (err: any) {
         toast.error(
           err?.message || "No se pudo borrar la imagen de Cloudinary",
