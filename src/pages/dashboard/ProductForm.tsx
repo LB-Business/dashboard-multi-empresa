@@ -45,6 +45,36 @@ type ProductVariantForm = {
   stock: number;
 };
 
+function createEmptyVariant(): ProductVariantForm {
+  return {
+    size: "",
+    color: "",
+    sku: "",
+    salePrice: undefined,
+    stock: 0,
+  };
+}
+
+function ensureAtLeastOneVariant(
+  variants?: ProductVariantForm[],
+): ProductVariantForm[] {
+  if (!variants || variants.length === 0) {
+    return [createEmptyVariant()];
+  }
+
+  return variants;
+}
+
+function normalizeCategoryLabel(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function uniqueCategories(values: string[]) {
+  return Array.from(
+    new Set(values.map(normalizeCategoryLabel).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+}
+
 const moneyFormatter = new Intl.NumberFormat("es-AR", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -227,6 +257,8 @@ export default function ProductFormPage() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [slugTouched, setSlugTouched] = useState(false);
   const [nameTouched, setNameTouched] = useState(false);
+  const [savedCategories, setSavedCategories] = useState<string[]>([]);
+  const [newCategory, setNewCategory] = useState("");
 
   const [salePriceInput, setSalePriceInput] = useState("");
   const [kmsInput, setKmsInput] = useState("");
@@ -250,6 +282,73 @@ export default function ProductFormPage() {
   const showManualProductTypeSelector = !forcedProductType;
   const isAutoBusiness = effectiveProductType === "auto";
   const isRopaBusiness = effectiveProductType === "ropa";
+
+  const categoryStorageKey = useMemo(() => {
+    const businessId = (business as { id?: string } | undefined)?.id;
+    const businessKey = business?.slug ?? businessId ?? "default";
+    return `lb-business-product-categories-${businessKey}`;
+  }, [business]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(categoryStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+
+      if (Array.isArray(parsed)) {
+        setSavedCategories(
+          parsed.filter((item) => typeof item === "string"),
+        );
+      }
+    } catch {
+      setSavedCategories([]);
+    }
+  }, [categoryStorageKey]);
+
+  const categoryOptions = useMemo(() => {
+    return uniqueCategories([
+      ...savedCategories,
+      form.category ?? "",
+    ]);
+  }, [savedCategories, form.category]);
+
+  const saveCategoryToLocalStorage = (nextCategories: string[]) => {
+    try {
+      window.localStorage.setItem(
+        categoryStorageKey,
+        JSON.stringify(nextCategories),
+      );
+    } catch {
+      // No bloqueamos el formulario si localStorage falla.
+    }
+  };
+
+  const addCategory = () => {
+    const clean = normalizeCategoryLabel(newCategory);
+
+    if (!clean) {
+      toast.error("Escribí el nombre de la categoría.");
+      return;
+    }
+
+    const alreadyExists = savedCategories.some(
+      (category) => category.toLowerCase() === clean.toLowerCase(),
+    );
+
+    const nextCategories = alreadyExists
+      ? savedCategories
+      : uniqueCategories([...savedCategories, clean]);
+
+    setSavedCategories(nextCategories);
+    saveCategoryToLocalStorage(nextCategories);
+
+    setForm((prev) => ({
+      ...prev,
+      category: clean,
+    }));
+
+    setNewCategory("");
+    toast.success(alreadyExists ? "Categoría seleccionada" : "Categoría creada");
+  };
 
   const totalVariantStock = useMemo(() => {
     return (form.variants ?? []).reduce(
@@ -282,7 +381,10 @@ export default function ProductFormPage() {
                   0,
                 )
               : prev.stock ?? 0,
-        variants: forcedProductType === "ropa" ? prev.variants ?? [] : [],
+        variants:
+          forcedProductType === "ropa"
+            ? ensureAtLeastOneVariant(prev.variants as ProductVariantForm[])
+            : [],
         vehicleDetails:
           forcedProductType === "auto" ? prev.vehicleDetails ?? {} : {},
         name:
@@ -349,13 +451,15 @@ export default function ProductFormPage() {
         images: normalizedImages,
         variants:
           nextProductType === "ropa"
-            ? existing.variants?.map((variant) => ({
-                size: variant.size ?? "",
-                color: variant.color ?? "",
-                sku: variant.sku ?? "",
-                salePrice: variant.salePrice ?? undefined,
-                stock: variant.stock ?? 0,
-              })) ?? []
+            ? ensureAtLeastOneVariant(
+                existing.variants?.map((variant) => ({
+                  size: variant.size ?? "",
+                  color: variant.color ?? "",
+                  sku: variant.sku ?? "",
+                  salePrice: variant.salePrice ?? undefined,
+                  stock: variant.stock ?? 0,
+                })) ?? [],
+              )
             : [],
         vehicleDetails:
           nextProductType === "auto" ? existing.vehicleDetails ?? {} : {},
@@ -774,14 +878,8 @@ export default function ProductFormPage() {
     setForm((prev) => ({
       ...prev,
       variants: [
-        ...(prev.variants ?? []),
-        {
-          size: "",
-          color: "",
-          sku: "",
-          salePrice: undefined,
-          stock: 0,
-        },
+        ...ensureAtLeastOneVariant(prev.variants as ProductVariantForm[]),
+        createEmptyVariant(),
       ],
     }));
   };
@@ -805,10 +903,25 @@ export default function ProductFormPage() {
   };
 
   const removeVariant = (index: number) => {
-    setForm((prev) => ({
-      ...prev,
-      variants: (prev.variants ?? []).filter((_, i) => i !== index),
-    }));
+    setForm((prev) => {
+      const current = ensureAtLeastOneVariant(
+        prev.variants as ProductVariantForm[],
+      );
+
+      if (current.length <= 1) {
+        toast.info("El producto de ropa necesita al menos una variante.");
+
+        return {
+          ...prev,
+          variants: [createEmptyVariant()],
+        };
+      }
+
+      return {
+        ...prev,
+        variants: current.filter((_, i) => i !== index),
+      };
+    });
   };
 
   const regenerateAutoName = () => {
@@ -822,6 +935,39 @@ export default function ProductFormPage() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      if (effectiveProductType === "ropa") {
+        if (!normalizeCategoryLabel(form.category ?? "")) {
+          throw new Error("Seleccioná o creá una categoría antes de guardar.");
+        }
+
+        const clothingVariants = ensureAtLeastOneVariant(
+          form.variants as ProductVariantForm[],
+        );
+
+        const hasMissingSize = clothingVariants.some(
+          (variant) => !variant.size?.trim(),
+        );
+
+        if (hasMissingSize) {
+          throw new Error("Cargá el talle en todas las variantes.");
+        }
+
+        const hasInvalidStock = clothingVariants.some(
+          (variant) =>
+            !Number.isFinite(Number(variant.stock)) || Number(variant.stock) < 0,
+        );
+
+        if (hasInvalidStock) {
+          throw new Error("El stock de cada talle tiene que ser 0 o mayor.");
+        }
+
+        if (form.isPublished && totalVariantStock <= 0) {
+          throw new Error(
+            "Para publicar el producto, cargá stock en al menos un talle.",
+          );
+        }
+      }
+
       const payload: CreateProductPayload = {
         ...form,
         productType: effectiveProductType,
@@ -834,9 +980,9 @@ export default function ProductFormPage() {
         slug: slugify(form.slug || form.name || ""),
         variants:
           effectiveProductType === "ropa"
-            ? (form.variants ?? [])
+            ? ensureAtLeastOneVariant(form.variants as ProductVariantForm[])
                 .map((variant) => ({
-                  size: variant.size?.trim() || undefined,
+                  size: variant.size.trim(),
                   color: variant.color?.trim() || undefined,
                   sku: variant.sku?.trim() || undefined,
                   salePrice:
@@ -847,16 +993,7 @@ export default function ProductFormPage() {
                       : undefined,
                   stock: Number(variant.stock || 0),
                 }))
-                .filter(
-                  (variant) =>
-                    variant.stock >= 0 &&
-                    !!(
-                      variant.size ||
-                      variant.color ||
-                      variant.sku ||
-                      variant.salePrice !== undefined
-                    ),
-                )
+                .filter((variant) => variant.size && variant.stock >= 0)
             : undefined,
         extraExpenseItems: (form.extraExpenseItems ?? [])
           .map((item) => ({
@@ -1148,7 +1285,12 @@ export default function ProductFormPage() {
                         productType: nextType,
                         vehicleDetails:
                           nextType === "auto" ? prev.vehicleDetails ?? {} : {},
-                        variants: nextType === "ropa" ? prev.variants ?? [] : [],
+                        variants:
+                          nextType === "ropa"
+                            ? ensureAtLeastOneVariant(
+                                prev.variants as ProductVariantForm[],
+                              )
+                            : [],
                         stock:
                           nextType === "auto"
                             ? 1
@@ -1255,25 +1397,69 @@ export default function ProductFormPage() {
                 <Input
                   value={String(totalVariantStock)}
                   readOnly
-                  className="bg-secondary border-border"
+                  aria-readonly="true"
+                  className="bg-muted/40 border-border text-muted-foreground cursor-not-allowed"
                 />
               </div>
             )}
 
             <div className="space-y-2">
-              <FieldLabel>Categoría</FieldLabel>
-              <Input
-                placeholder={
-                  isRopaBusiness
-                    ? "Ej: Remeras"
-                    : isAutoBusiness
-                      ? "Ej: Hatchback"
-                      : "Categoría"
+              <FieldLabel info="No hay categorías default. Creá las categorías propias de este negocio y después elegilas desde el selector.">
+                Categoría
+              </FieldLabel>
+
+              <select
+                value={form.category ?? ""}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    category: e.target.value,
+                  }))
                 }
-                value={form.category}
-                onChange={setText("category")}
-                className="bg-secondary border-border"
-              />
+                className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
+              >
+                <option value="">
+                  {categoryOptions.length > 0
+                    ? "Seleccionar categoría"
+                    : "Primero creá una categoría"}
+                </option>
+
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <Input
+                  placeholder={
+                    isRopaBusiness
+                      ? "Nueva categoría, ej: Zapatillas"
+                      : isAutoBusiness
+                        ? "Nueva categoría, ej: SUV"
+                        : "Nueva categoría"
+                  }
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCategory();
+                    }
+                  }}
+                  className="bg-secondary border-border"
+                />
+
+                <Button type="button" variant="outline" onClick={addCategory}>
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  Crear
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Las categorías se guardan localmente para este negocio y se reutilizan en próximos productos.
+              </p>
             </div>
           </div>
 
@@ -1341,10 +1527,15 @@ export default function ProductFormPage() {
 
         {isRopaBusiness && (
           <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-foreground">
-                Variantes de ropa
-              </h2>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">
+                  Variantes por talle
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cargá un renglón por cada talle. El stock total se calcula solo con la suma de estos stocks.
+                </p>
+              </div>
 
               <Button
                 type="button"
@@ -1353,82 +1544,123 @@ export default function ProductFormPage() {
                 onClick={addVariant}
               >
                 <Plus className="h-4 w-4 mr-1.5" />
-                Agregar variante
+                Agregar talle
               </Button>
             </div>
 
             {(form.variants?.length ?? 0) === 0 ? (
               <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                Todavía no cargaste variantes. Agregá talle, color y stock.
+                El producto necesita al menos una variante con talle y stock.
               </div>
             ) : (
               <div className="space-y-3">
                 {form.variants?.map((variant, index) => (
                   <div
                     key={index}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_180px_120px_48px] gap-3"
+                    className="rounded-lg border border-border bg-background/30 p-3 space-y-3"
                   >
-                    <Input
-                      placeholder="Talle (ej: M)"
-                      value={variant.size ?? ""}
-                      onChange={(e) =>
-                        updateVariant(index, "size", e.target.value)
-                      }
-                      className="bg-secondary border-border"
-                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Talle #{index + 1}
+                      </p>
 
-                    <Input
-                      placeholder="Color (ej: Negro)"
-                      value={variant.color ?? ""}
-                      onChange={(e) =>
-                        updateVariant(index, "color", e.target.value)
-                      }
-                      className="bg-secondary border-border"
-                    />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeVariant(index)}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        title="Eliminar talle"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
 
-                    <Input
-                      placeholder="SKU (opcional)"
-                      value={variant.sku ?? ""}
-                      onChange={(e) =>
-                        updateVariant(index, "sku", e.target.value)
-                      }
-                      className="bg-secondary border-border"
-                    />
+                    <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_150px_160px] gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Talle *
+                        </Label>
+                        <Input
+                          placeholder="Ej: 40, 41, M, L"
+                          value={variant.size ?? ""}
+                          onChange={(e) =>
+                            updateVariant(index, "size", e.target.value)
+                          }
+                          className="bg-secondary border-border"
+                        />
+                      </div>
 
-                    <Input
-                      type="number"
-                      placeholder="Precio variante"
-                      value={variant.salePrice ?? ""}
-                      onChange={(e) =>
-                        updateVariant(
-                          index,
-                          "salePrice",
-                          e.target.value === ""
-                            ? undefined
-                            : Number(e.target.value),
-                        )
-                      }
-                      className="bg-secondary border-border"
-                    />
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Color
+                        </Label>
+                        <Input
+                          placeholder="Ej: Negro"
+                          value={variant.color ?? ""}
+                          onChange={(e) =>
+                            updateVariant(index, "color", e.target.value)
+                          }
+                          className="bg-secondary border-border"
+                        />
+                      </div>
 
-                    <Input
-                      type="number"
-                      placeholder="Stock"
-                      value={variant.stock}
-                      onChange={(e) =>
-                        updateVariant(index, "stock", Number(e.target.value || 0))
-                      }
-                      className="bg-secondary border-border"
-                    />
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          SKU opcional
+                        </Label>
+                        <Input
+                          placeholder="Ej: J4-BC-40"
+                          value={variant.sku ?? ""}
+                          onChange={(e) =>
+                            updateVariant(index, "sku", e.target.value)
+                          }
+                          className="bg-secondary border-border"
+                        />
+                      </div>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => removeVariant(index)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Stock *
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="0"
+                          value={variant.stock}
+                          onChange={(e) =>
+                            updateVariant(
+                              index,
+                              "stock",
+                              Number(e.target.value || 0),
+                            )
+                          }
+                          className="bg-secondary border-border"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          Precio específico
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          placeholder="Usa precio base"
+                          value={variant.salePrice ?? ""}
+                          onChange={(e) =>
+                            updateVariant(
+                              index,
+                              "salePrice",
+                              e.target.value === ""
+                                ? undefined
+                                : Number(e.target.value),
+                            )
+                          }
+                          className="bg-secondary border-border"
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
