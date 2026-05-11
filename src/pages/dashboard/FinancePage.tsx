@@ -22,17 +22,34 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   financeService,
+  type CurrencyCode,
   type FinanceMovement,
+  type FinanceTotals,
 } from "@/services/finance.service";
 
-function formatCurrency(value?: number | null) {
-  return `$${Number(value ?? 0).toLocaleString("es-AR")}`;
+function formatCurrency(value?: number | null, currency: CurrencyCode = "ARS") {
+  const amount = Number(value ?? 0);
+
+  if (currency === "USD") {
+    return `USD ${amount.toLocaleString("es-AR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
+  return `$${amount.toLocaleString("es-AR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
 }
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "-";
+
   return date.toLocaleDateString("es-AR");
 }
 
@@ -100,7 +117,22 @@ function getDirectionLabel(direction?: string) {
 
 function getMonthInputValue() {
   const now = new Date();
+
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function emptyTotals(): FinanceTotals {
+  return {
+    income: 0,
+    expenses: 0,
+    balance: 0,
+    salesIncome: 0,
+    depositsIncome: 0,
+    manualExpenses: 0,
+    productExtraExpenses: 0,
+    vehiclePurchases: 0,
+    consignmentSettlements: 0,
+  };
 }
 
 export default function FinancePage() {
@@ -132,22 +164,54 @@ export default function FinancePage() {
 
   const movementList = Array.isArray(movements) ? movements : [];
 
+  const arsTotals = summary?.totalsByCurrency?.ARS ?? summary?.totals ?? emptyTotals();
+  const usdTotals = summary?.totalsByCurrency?.USD ?? emptyTotals();
+
+  const arsStats = summary?.productStatsByCurrency?.ARS ?? {
+    estimatedProfit: summary?.productStats?.estimatedProfit ?? 0,
+    realProfit: summary?.productStats?.realProfit ?? 0,
+  };
+
+  const usdStats = summary?.productStatsByCurrency?.USD ?? {
+    estimatedProfit: 0,
+    realProfit: 0,
+  };
+
+  const hasUsdData =
+    usdTotals.income !== 0 ||
+    usdTotals.expenses !== 0 ||
+    usdTotals.balance !== 0 ||
+    usdTotals.salesIncome !== 0 ||
+    usdTotals.vehiclePurchases !== 0 ||
+    usdStats.estimatedProfit !== 0 ||
+    usdStats.realProfit !== 0 ||
+    movementList.some((item) => item.currency === "USD");
+
+  const publishedCount = Number(summary?.productStats?.publishedCount ?? 0);
+  const soldCount = Number(summary?.productStats?.soldCount ?? 0);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
+
     if (!q) return movementList;
+
     return movementList.filter((item: FinanceMovement) => {
       return (
         (item.title ?? "").toLowerCase().includes(q) ||
         (item.description ?? "").toLowerCase().includes(q) ||
         (item.productName ?? "").toLowerCase().includes(q) ||
-        (item.type ?? "").toLowerCase().includes(q)
+        (item.type ?? "").toLowerCase().includes(q) ||
+        (item.currency ?? "").toLowerCase().includes(q)
       );
     });
   }, [movementList, search]);
 
   return (
     <div>
-      <DashboardTopbar title="Finance" subtitle="Resumen financiero del negocio" />
+      <DashboardTopbar
+        title="Finance"
+        subtitle="Resumen financiero del negocio"
+      />
 
       <div className="p-6 space-y-6">
         {isLoading ? (
@@ -161,7 +225,6 @@ export default function FinancePage() {
           />
         ) : (
           <>
-            {/* Month selector */}
             <div className="flex flex-col md:flex-row md:items-center gap-3">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Mes</label>
@@ -174,29 +237,138 @@ export default function FinancePage() {
               </div>
             </div>
 
-            {/* Stats cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              <StatsCard title="Balance" value={formatCurrency(summary?.totals.balance)} icon={Wallet} />
-              <StatsCard title="Ingresos" value={formatCurrency(summary?.totals.income)} icon={TrendingUp} />
-              <StatsCard title="Egresos" value={formatCurrency(summary?.totals.expenses)} icon={TrendingDown} />
-              <StatsCard title="Ventas" value={formatCurrency(summary?.totals.salesIncome)} icon={Package} />
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Resumen en pesos argentinos
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatsCard
+                  title="Balance ARS"
+                  value={formatCurrency(arsTotals.balance, "ARS")}
+                  icon={Wallet}
+                />
+                <StatsCard
+                  title="Ingresos ARS"
+                  value={formatCurrency(arsTotals.income, "ARS")}
+                  icon={TrendingUp}
+                />
+                <StatsCard
+                  title="Egresos ARS"
+                  value={formatCurrency(arsTotals.expenses, "ARS")}
+                  icon={TrendingDown}
+                />
+                <StatsCard
+                  title="Ventas ARS"
+                  value={formatCurrency(arsTotals.salesIncome, "ARS")}
+                  icon={Package}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatsCard
+                  title="Señas ARS"
+                  value={formatCurrency(arsTotals.depositsIncome, "ARS")}
+                  icon={HandCoins}
+                />
+                <StatsCard
+                  title="Gastos manuales ARS"
+                  value={formatCurrency(arsTotals.manualExpenses, "ARS")}
+                  icon={Receipt}
+                />
+                <StatsCard
+                  title="Gastos productos ARS"
+                  value={formatCurrency(arsTotals.productExtraExpenses, "ARS")}
+                  icon={Package}
+                />
+                <StatsCard
+                  title="Compras vehículos ARS"
+                  value={formatCurrency(arsTotals.vehiclePurchases, "ARS")}
+                  icon={Car}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatsCard
+                  title="Ganancia estimada ARS"
+                  value={formatCurrency(arsStats.estimatedProfit, "ARS")}
+                  icon={TrendingUp}
+                />
+                <StatsCard
+                  title="Ganancia real ARS"
+                  value={formatCurrency(arsStats.realProfit, "ARS")}
+                  icon={Wallet}
+                />
+                <StatsCard
+                  title="Publicados"
+                  value={publishedCount}
+                  icon={Package}
+                />
+                <StatsCard
+                  title="Vendidos"
+                  value={soldCount}
+                  icon={TrendingUp}
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              <StatsCard title="Señas" value={formatCurrency(summary?.totals.depositsIncome)} icon={HandCoins} />
-              <StatsCard title="Gastos manuales" value={formatCurrency(summary?.totals.manualExpenses)} icon={Receipt} />
-              <StatsCard title="Gastos productos" value={formatCurrency(summary?.totals.productExtraExpenses)} icon={Package} />
-              <StatsCard title="Compras vehículos" value={formatCurrency(summary?.totals.vehiclePurchases)} icon={Car} />
-            </div>
+            {hasUsdData && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Resumen en dólares
+                </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              <StatsCard title="Ganancia estimada" value={formatCurrency(summary?.productStats.estimatedProfit)} icon={TrendingUp} />
-              <StatsCard title="Ganancia real" value={formatCurrency(summary?.productStats.realProfit)} icon={Wallet} />
-              <StatsCard title="Publicados" value={Number(summary?.productStats.publishedCount ?? 0)} icon={Package} />
-              <StatsCard title="Vendidos" value={Number(summary?.productStats.soldCount ?? 0)} icon={TrendingUp} />
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <StatsCard
+                    title="Balance USD"
+                    value={formatCurrency(usdTotals.balance, "USD")}
+                    icon={Wallet}
+                  />
+                  <StatsCard
+                    title="Ingresos USD"
+                    value={formatCurrency(usdTotals.income, "USD")}
+                    icon={TrendingUp}
+                  />
+                  <StatsCard
+                    title="Egresos USD"
+                    value={formatCurrency(usdTotals.expenses, "USD")}
+                    icon={TrendingDown}
+                  />
+                  <StatsCard
+                    title="Ventas USD"
+                    value={formatCurrency(usdTotals.salesIncome, "USD")}
+                    icon={Package}
+                  />
+                </div>
 
-            {/* Search */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <StatsCard
+                    title="Señas USD"
+                    value={formatCurrency(usdTotals.depositsIncome, "USD")}
+                    icon={HandCoins}
+                  />
+                  <StatsCard
+                    title="Compras vehículos USD"
+                    value={formatCurrency(usdTotals.vehiclePurchases, "USD")}
+                    icon={Car}
+                  />
+                  <StatsCard
+                    title="Liquidaciones USD"
+                    value={formatCurrency(
+                      usdTotals.consignmentSettlements,
+                      "USD",
+                    )}
+                    icon={ArrowRightLeft}
+                  />
+                  <StatsCard
+                    title="Ganancia real USD"
+                    value={formatCurrency(usdStats.realProfit, "USD")}
+                    icon={TrendingUp}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -209,7 +381,6 @@ export default function FinancePage() {
               </div>
             </div>
 
-            {/* Movements table */}
             {filtered.length === 0 ? (
               <EmptyState
                 icon={Wallet}
@@ -231,6 +402,9 @@ export default function FinancePage() {
                         Monto
                       </th>
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
+                        Moneda
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
                         Fecha
                       </th>
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -238,18 +412,27 @@ export default function FinancePage() {
                       </th>
                     </tr>
                   </thead>
+
                   <tbody className="divide-y divide-border">
                     {filtered.map((item) => {
                       const Icon = getMovementIcon(item.type);
+
                       return (
-                        <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                        <tr
+                          key={item.id}
+                          className="hover:bg-muted/20 transition-colors"
+                        >
                           <td className="px-4 py-3">
                             <div className="flex items-start gap-3">
                               <div className="mt-0.5 rounded-md bg-secondary p-2">
                                 <Icon className="h-4 w-4 text-muted-foreground" />
                               </div>
+
                               <div className="min-w-0">
-                                <p className="text-foreground font-medium">{item.title}</p>
+                                <p className="text-foreground font-medium">
+                                  {item.title}
+                                </p>
+
                                 {item.description && (
                                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                                     {item.description}
@@ -258,13 +441,36 @@ export default function FinancePage() {
                               </div>
                             </div>
                           </td>
+
                           <td className="px-4 py-3 hidden md:table-cell">
-                            <Badge variant="outline" className="text-[10px]">{getMovementTypeLabel(item.type)}</Badge>
+                            <Badge variant="outline" className="text-[10px]">
+                              {getMovementTypeLabel(item.type)}
+                            </Badge>
                           </td>
-                          <td className="px-4 py-3 text-foreground font-mono text-xs">{item.amount != null ? formatCurrency(item.amount) : "-"}</td>
-                          <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{formatDate(item.date)}</td>
+
+                          <td className="px-4 py-3 text-foreground font-mono text-xs">
+                            {item.amount != null
+                              ? formatCurrency(item.amount, item.currency)
+                              : "-"}
+                          </td>
+
+                          <td className="px-4 py-3 hidden sm:table-cell">
+                            <Badge variant="outline" className="text-[10px]">
+                              {item.currency}
+                            </Badge>
+                          </td>
+
+                          <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
+                            {formatDate(item.date)}
+                          </td>
+
                           <td className="px-4 py-3">
-                            <Badge variant={getDirectionVariant(item.direction)} className="text-[10px]">{getDirectionLabel(item.direction)}</Badge>
+                            <Badge
+                              variant={getDirectionVariant(item.direction)}
+                              className="text-[10px]"
+                            >
+                              {getDirectionLabel(item.direction)}
+                            </Badge>
                           </td>
                         </tr>
                       );

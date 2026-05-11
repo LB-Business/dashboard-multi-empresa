@@ -45,6 +45,12 @@ type ProductVariantForm = {
   stock: number;
 };
 
+type ProductListItem = {
+  id?: string;
+  _id?: string;
+  category?: string | null;
+};
+
 function createEmptyVariant(): ProductVariantForm {
   return {
     size: "",
@@ -218,9 +224,63 @@ function buildAutoName(vehicleDetails?: CreateProductPayload["vehicleDetails"]) 
     vehicleDetails?.brand?.trim(),
     vehicleDetails?.model?.trim(),
     vehicleDetails?.version?.trim(),
+    vehicleDetails?.year ? String(vehicleDetails.year).trim() : "",
   ].filter(Boolean);
 
   return parts.join(" ").trim();
+}
+
+function buildAutoTags(
+  form: CreateProductPayload,
+  effectiveProductType: ProductType,
+) {
+  if (effectiveProductType === "auto") {
+    return Array.from(
+      new Set(
+        [
+          form.vehicleDetails?.brand,
+          form.vehicleDetails?.model,
+          form.vehicleDetails?.version,
+          form.vehicleDetails?.year ? String(form.vehicleDetails.year) : "",
+          form.vehicleDetails?.fuelType,
+          form.vehicleDetails?.transmission,
+          form.vehicleDetails?.color,
+          form.category,
+          "auto",
+        ]
+          .map((item) => String(item || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  return Array.from(
+    new Set(
+      [form.name, form.category, effectiveProductType]
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function normalizeProductsResponse(response: unknown): ProductListItem[] {
+  if (Array.isArray(response)) return response as ProductListItem[];
+
+  const maybeObject = response as
+    | {
+        data?: ProductListItem[];
+        items?: ProductListItem[];
+        products?: ProductListItem[];
+        docs?: ProductListItem[];
+      }
+    | undefined;
+
+  if (Array.isArray(maybeObject?.data)) return maybeObject.data;
+  if (Array.isArray(maybeObject?.items)) return maybeObject.items;
+  if (Array.isArray(maybeObject?.products)) return maybeObject.products;
+  if (Array.isArray(maybeObject?.docs)) return maybeObject.docs;
+
+  return [];
 }
 
 export default function ProductFormPage() {
@@ -250,14 +310,20 @@ export default function ProductFormPage() {
     status: "draft",
     isPublished: false,
     vehicleDetails: {},
+    ownership: {
+      ownershipType: "owned",
+      purchasePrice: undefined,
+      purchaseDate: undefined,
+      ownerExpectedAmount: undefined,
+      consignorName: "",
+      consignorPhone: "",
+    },
     extraExpenseItems: [],
   });
 
   const [uploading, setUploading] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [slugTouched, setSlugTouched] = useState(false);
-  const [nameTouched, setNameTouched] = useState(false);
-  const [savedCategories, setSavedCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
 
   const [salePriceInput, setSalePriceInput] = useState("");
@@ -265,6 +331,7 @@ export default function ProductFormPage() {
   const [costPriceInput, setCostPriceInput] = useState("");
   const [estimatedSalePriceInput, setEstimatedSalePriceInput] = useState("");
   const [finalSalePriceInput, setFinalSalePriceInput] = useState("");
+  const [ownerExpectedAmountInput, setOwnerExpectedAmountInput] = useState("");
   const [extraExpenseInputs, setExtraExpenseInputs] = useState<string[]>([]);
 
   const { data: business } = useQuery({
@@ -282,45 +349,35 @@ export default function ProductFormPage() {
   const showManualProductTypeSelector = !forcedProductType;
   const isAutoBusiness = effectiveProductType === "auto";
   const isRopaBusiness = effectiveProductType === "ropa";
+  const ownershipType = form.ownership?.ownershipType ?? "owned";
+  const isConsignment = isAutoBusiness && ownershipType === "consignment";
+  const isOwnedVehicle = isAutoBusiness && ownershipType === "owned";
 
-  const categoryStorageKey = useMemo(() => {
-    const businessId = (business as { id?: string } | undefined)?.id;
-    const businessKey = business?.slug ?? businessId ?? "default";
-    return `lb-business-product-categories-${businessKey}`;
-  }, [business]);
+  const cachedProductsForCategories = useMemo(() => {
+    const possibleKeys = [
+      ["products"],
+      ["products", "list"],
+      ["dashboard-products"],
+    ];
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(categoryStorageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
+    for (const key of possibleKeys) {
+      const cached = queryClient.getQueryData(key);
+      const normalized = normalizeProductsResponse(cached);
 
-      if (Array.isArray(parsed)) {
-        setSavedCategories(
-          parsed.filter((item) => typeof item === "string"),
-        );
+      if (normalized.length > 0) {
+        return normalized;
       }
-    } catch {
-      setSavedCategories([]);
     }
-  }, [categoryStorageKey]);
+
+    return [];
+  }, [queryClient]);
 
   const categoryOptions = useMemo(() => {
     return uniqueCategories([
-      ...savedCategories,
+      ...cachedProductsForCategories.map((product) => product.category ?? ""),
       form.category ?? "",
     ]);
-  }, [savedCategories, form.category]);
-
-  const saveCategoryToLocalStorage = (nextCategories: string[]) => {
-    try {
-      window.localStorage.setItem(
-        categoryStorageKey,
-        JSON.stringify(nextCategories),
-      );
-    } catch {
-      // No bloqueamos el formulario si localStorage falla.
-    }
-  };
+  }, [cachedProductsForCategories, form.category]);
 
   const addCategory = () => {
     const clean = normalizeCategoryLabel(newCategory);
@@ -330,24 +387,13 @@ export default function ProductFormPage() {
       return;
     }
 
-    const alreadyExists = savedCategories.some(
-      (category) => category.toLowerCase() === clean.toLowerCase(),
-    );
-
-    const nextCategories = alreadyExists
-      ? savedCategories
-      : uniqueCategories([...savedCategories, clean]);
-
-    setSavedCategories(nextCategories);
-    saveCategoryToLocalStorage(nextCategories);
-
     setForm((prev) => ({
       ...prev,
       category: clean,
     }));
 
     setNewCategory("");
-    toast.success(alreadyExists ? "Categoría seleccionada" : "Categoría creada");
+    toast.success("Categoría seleccionada. Se guardará cuando guardes el producto.");
   };
 
   const totalVariantStock = useMemo(() => {
@@ -387,20 +433,37 @@ export default function ProductFormPage() {
             : [],
         vehicleDetails:
           forcedProductType === "auto" ? prev.vehicleDetails ?? {} : {},
+        ownership:
+          forcedProductType === "auto"
+            ? prev.ownership ?? { ownershipType: "owned" }
+            : undefined,
         name:
-          forcedProductType === "auto" && !nameTouched
+          forcedProductType === "auto"
             ? buildAutoName(prev.vehicleDetails ?? {})
             : prev.name,
       };
     });
-  }, [forcedProductType, nameTouched]);
+  }, [forcedProductType]);
 
   useEffect(() => {
     if (isAutoBusiness) {
       setForm((prev) => {
-        if (prev.stock === 1 && (prev.variants?.length ?? 0) === 0) return prev;
+        const generatedName = buildAutoName(prev.vehicleDetails);
+        const generatedSlug = slugify(generatedName);
+
+        if (
+          prev.stock === 1 &&
+          (prev.variants?.length ?? 0) === 0 &&
+          prev.name === generatedName &&
+          prev.slug === generatedSlug
+        ) {
+          return prev;
+        }
+
         return {
           ...prev,
+          name: generatedName,
+          slug: generatedSlug,
           stock: 1,
           variants: [],
         };
@@ -417,7 +480,15 @@ export default function ProductFormPage() {
         };
       });
     }
-  }, [isAutoBusiness, isRopaBusiness, totalVariantStock]);
+  }, [
+    isAutoBusiness,
+    isRopaBusiness,
+    totalVariantStock,
+    form.vehicleDetails?.brand,
+    form.vehicleDetails?.model,
+    form.vehicleDetails?.version,
+    form.vehicleDetails?.year,
+  ]);
 
   useEffect(() => {
     if (existing) {
@@ -432,10 +503,20 @@ export default function ProductFormPage() {
       const normalizedImages = normalizeImages(mappedImages);
       const nextProductType =
         forcedProductType ?? existing.productType ?? "general";
+      const nextVehicleDetails =
+        nextProductType === "auto" ? existing.vehicleDetails ?? {} : {};
+      const generatedAutoName = buildAutoName(nextVehicleDetails);
+      const generatedAutoSlug = slugify(generatedAutoName);
 
       setForm({
-        name: existing.name ?? "",
-        slug: existing.slug ?? "",
+        name:
+          nextProductType === "auto"
+            ? generatedAutoName
+            : existing.name ?? "",
+        slug:
+          nextProductType === "auto"
+            ? generatedAutoSlug
+            : existing.slug ?? "",
         productType: nextProductType,
         description: existing.description ?? "",
         salePrice: existing.salePrice ?? 0,
@@ -461,8 +542,11 @@ export default function ProductFormPage() {
                 })) ?? [],
               )
             : [],
-        vehicleDetails:
-          nextProductType === "auto" ? existing.vehicleDetails ?? {} : {},
+        vehicleDetails: nextVehicleDetails,
+        ownership:
+          nextProductType === "auto"
+            ? existing.ownership ?? { ownershipType: "owned" }
+            : undefined,
         status: existing.status ?? "draft",
         isPublished: existing.isPublished ?? false,
         costPrice: existing.finance?.costPrice ?? undefined,
@@ -498,6 +582,11 @@ export default function ProductFormPage() {
           ? formatMoney(existing.finance.finalSalePrice)
           : "",
       );
+      setOwnerExpectedAmountInput(
+        existing.ownership?.ownerExpectedAmount
+          ? formatMoney(existing.ownership.ownerExpectedAmount)
+          : "",
+      );
       setExtraExpenseInputs(
         (existing.finance?.extraExpenseItems ?? []).map((item) =>
           item.amount ? formatMoney(item.amount) : "",
@@ -510,19 +599,20 @@ export default function ProductFormPage() {
       removedExistingImagesRef.current = new Set();
       uploadedThisSessionRef.current = new Set();
       setSlugTouched(true);
-      setNameTouched(true);
     } else {
       setSalePriceInput("");
       setKmsInput("");
       setCostPriceInput("");
       setEstimatedSalePriceInput("");
       setFinalSalePriceInput("");
+      setOwnerExpectedAmountInput("");
       setExtraExpenseInputs([]);
     }
   }, [existing, forcedProductType]);
 
   useEffect(() => {
     if (isEditing) return;
+    if (isAutoBusiness) return;
     if (slugTouched) return;
 
     const generatedSlug = slugify(form.name || "");
@@ -534,31 +624,7 @@ export default function ProductFormPage() {
         slug: generatedSlug,
       };
     });
-  }, [form.name, slugTouched, isEditing]);
-
-  useEffect(() => {
-    if (isEditing) return;
-    if (!isAutoBusiness) return;
-    if (nameTouched) return;
-
-    const generatedName = buildAutoName(form.vehicleDetails);
-
-    setForm((prev) => {
-      if ((prev.name || "") === generatedName) return prev;
-      return {
-        ...prev,
-        name: generatedName,
-      };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    form.vehicleDetails?.brand,
-    form.vehicleDetails?.model,
-    form.vehicleDetails?.version,
-    isEditing,
-    isAutoBusiness,
-    nameTouched,
-  ]);
+  }, [form.name, slugTouched, isEditing, isAutoBusiness]);
 
   useEffect(() => {
     return () => {
@@ -604,26 +670,54 @@ export default function ProductFormPage() {
   const setVehicleText =
     (field: keyof NonNullable<CreateProductPayload["vehicleDetails"]>) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      setForm((prev) => ({
-        ...prev,
-        vehicleDetails: {
+      setForm((prev) => {
+        const nextVehicleDetails = {
           ...(prev.vehicleDetails ?? {}),
           [field]: e.target.value,
-        },
-      }));
+        };
+
+        const generatedName =
+          effectiveProductType === "auto"
+            ? buildAutoName(nextVehicleDetails)
+            : prev.name;
+
+        return {
+          ...prev,
+          vehicleDetails: nextVehicleDetails,
+          name: effectiveProductType === "auto" ? generatedName : prev.name,
+          slug:
+            effectiveProductType === "auto"
+              ? slugify(generatedName)
+              : prev.slug,
+        };
+      });
     };
 
   const setVehicleNumber =
     (field: keyof NonNullable<CreateProductPayload["vehicleDetails"]>) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
-      setForm((prev) => ({
-        ...prev,
-        vehicleDetails: {
+      setForm((prev) => {
+        const nextVehicleDetails = {
           ...(prev.vehicleDetails ?? {}),
           [field]: value === "" ? undefined : Number(value),
-        },
-      }));
+        };
+
+        const generatedName =
+          effectiveProductType === "auto"
+            ? buildAutoName(nextVehicleDetails)
+            : prev.name;
+
+        return {
+          ...prev,
+          vehicleDetails: nextVehicleDetails,
+          name: effectiveProductType === "auto" ? generatedName : prev.name,
+          slug:
+            effectiveProductType === "auto"
+              ? slugify(generatedName)
+              : prev.slug,
+        };
+      });
     };
 
   const handleSalePriceFocus = () => {
@@ -695,10 +789,22 @@ export default function ProductFormPage() {
   };
 
   const handleCostPriceChange = (raw: string) => {
+    const parsed = parseMoneyInput(raw);
+
     setCostPriceInput(raw);
     setForm((prev) => ({
       ...prev,
-      costPrice: parseMoneyInput(raw),
+      costPrice: parsed,
+      ownership:
+        effectiveProductType === "auto"
+          ? {
+              ...(prev.ownership ?? { ownershipType: "owned" }),
+              purchasePrice:
+                (prev.ownership?.ownershipType ?? "owned") === "owned"
+                  ? parsed
+                  : prev.ownership?.purchasePrice,
+            }
+          : prev.ownership,
     }));
   };
 
@@ -710,7 +816,20 @@ export default function ProductFormPage() {
     }
 
     const parsed = parseMoneyInput(costPriceInput);
-    setForm((prev) => ({ ...prev, costPrice: parsed }));
+    setForm((prev) => ({
+      ...prev,
+      costPrice: parsed,
+      ownership:
+        effectiveProductType === "auto"
+          ? {
+              ...(prev.ownership ?? { ownershipType: "owned" }),
+              purchasePrice:
+                (prev.ownership?.ownershipType ?? "owned") === "owned"
+                  ? parsed
+                  : prev.ownership?.purchasePrice,
+            }
+          : prev.ownership,
+    }));
     setCostPriceInput(formatMoney(parsed));
   };
 
@@ -760,6 +879,107 @@ export default function ProductFormPage() {
     const parsed = parseMoneyInput(finalSalePriceInput);
     setForm((prev) => ({ ...prev, finalSalePrice: parsed }));
     setFinalSalePriceInput(formatMoney(parsed));
+  };
+
+  const setOwnershipType = (value: "owned" | "consignment") => {
+    setForm((prev) => ({
+      ...prev,
+      ownership:
+        value === "owned"
+          ? {
+              ...(prev.ownership ?? {}),
+              ownershipType: "owned",
+              purchasePrice: prev.costPrice ?? prev.ownership?.purchasePrice,
+              ownerExpectedAmount: undefined,
+              consignorName: "",
+              consignorPhone: "",
+            }
+          : {
+              ...(prev.ownership ?? {}),
+              ownershipType: "consignment",
+              purchasePrice: undefined,
+              purchaseDate: undefined,
+              ownerExpectedAmount: prev.ownership?.ownerExpectedAmount,
+              consignorName: prev.ownership?.consignorName ?? "",
+              consignorPhone: prev.ownership?.consignorPhone ?? "",
+            },
+    }));
+
+    if (value === "consignment") {
+      setCostPriceInput("");
+      setForm((prev) => ({ ...prev, costPrice: undefined }));
+    }
+  };
+
+  const setOwnershipText =
+    (field: "consignorName" | "consignorPhone") =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setForm((prev) => ({
+        ...prev,
+        ownership: {
+          ...(prev.ownership ?? { ownershipType: "consignment" }),
+          [field]: e.target.value,
+        },
+      }));
+    };
+
+  const setOwnershipPurchaseDate = (value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      ownership: {
+        ...(prev.ownership ?? { ownershipType: "owned" }),
+        ownershipType: "owned",
+        purchaseDate: value ? toIsoFromDateInput(value) : undefined,
+      },
+    }));
+  };
+
+  const handleOwnerExpectedAmountFocus = () => {
+    setOwnerExpectedAmountInput(
+      toRawMoneyString(form.ownership?.ownerExpectedAmount),
+    );
+  };
+
+  const handleOwnerExpectedAmountChange = (raw: string) => {
+    const parsed = parseMoneyInput(raw);
+
+    setOwnerExpectedAmountInput(raw);
+    setForm((prev) => ({
+      ...prev,
+      ownership: {
+        ...(prev.ownership ?? { ownershipType: "consignment" }),
+        ownershipType: "consignment",
+        ownerExpectedAmount: parsed,
+      },
+    }));
+  };
+
+  const handleOwnerExpectedAmountBlur = () => {
+    if (!ownerExpectedAmountInput.trim()) {
+      setOwnerExpectedAmountInput("");
+      setForm((prev) => ({
+        ...prev,
+        ownership: {
+          ...(prev.ownership ?? { ownershipType: "consignment" }),
+          ownershipType: "consignment",
+          ownerExpectedAmount: undefined,
+        },
+      }));
+      return;
+    }
+
+    const parsed = parseMoneyInput(ownerExpectedAmountInput);
+
+    setForm((prev) => ({
+      ...prev,
+      ownership: {
+        ...(prev.ownership ?? { ownershipType: "consignment" }),
+        ownershipType: "consignment",
+        ownerExpectedAmount: parsed,
+      },
+    }));
+
+    setOwnerExpectedAmountInput(formatMoney(parsed));
   };
 
   const addExtraExpenseItem = () => {
@@ -924,15 +1144,6 @@ export default function ProductFormPage() {
     });
   };
 
-  const regenerateAutoName = () => {
-    const generatedName = buildAutoName(form.vehicleDetails);
-    setNameTouched(false);
-    setForm((prev) => ({
-      ...prev,
-      name: generatedName,
-    }));
-  };
-
   const mutation = useMutation({
     mutationFn: () => {
       if (effectiveProductType === "ropa") {
@@ -968,8 +1179,42 @@ export default function ProductFormPage() {
         }
       }
 
+      if (effectiveProductType === "auto") {
+        const autoName = buildAutoName(form.vehicleDetails);
+
+        if (!autoName) {
+          throw new Error("Cargá al menos marca y modelo del vehículo.");
+        }
+
+        if (form.ownership?.ownershipType === "consignment") {
+          if (!Number(form.ownership?.ownerExpectedAmount ?? 0)) {
+            throw new Error("Cargá el monto a entregar al dueño consignante.");
+          }
+        }
+      }
+
+      const generatedName =
+        effectiveProductType === "auto"
+          ? buildAutoName(form.vehicleDetails)
+          : form.name;
+
+      const generatedSlug =
+        effectiveProductType === "auto"
+          ? slugify(generatedName)
+          : slugify(form.slug || generatedName || "");
+
       const payload: CreateProductPayload = {
         ...form,
+        name: generatedName,
+        slug: generatedSlug,
+        tags: buildAutoTags(
+          {
+            ...form,
+            name: generatedName,
+            slug: generatedSlug,
+          },
+          effectiveProductType,
+        ),
         productType: effectiveProductType,
         stock:
           effectiveProductType === "auto"
@@ -977,7 +1222,6 @@ export default function ProductFormPage() {
             : effectiveProductType === "ropa"
               ? totalVariantStock
               : form.stock ?? 0,
-        slug: slugify(form.slug || form.name || ""),
         variants:
           effectiveProductType === "ropa"
             ? ensureAtLeastOneVariant(form.variants as ProductVariantForm[])
@@ -1004,6 +1248,28 @@ export default function ProductFormPage() {
           .filter((item) => item.label && item.amount >= 0),
         vehicleDetails:
           effectiveProductType === "auto" ? form.vehicleDetails : undefined,
+        ownership:
+          effectiveProductType === "auto"
+            ? form.ownership?.ownershipType === "consignment"
+              ? {
+                  ownershipType: "consignment",
+                  ownerExpectedAmount: Number(
+                    form.ownership?.ownerExpectedAmount ?? 0,
+                  ),
+                  consignorName:
+                    form.ownership?.consignorName?.trim() || undefined,
+                  consignorPhone:
+                    form.ownership?.consignorPhone?.trim() || undefined,
+                }
+              : {
+                  ownershipType: "owned",
+                  purchasePrice:
+                    form.costPrice !== undefined
+                      ? Number(form.costPrice)
+                      : form.ownership?.purchasePrice,
+                  purchaseDate: form.ownership?.purchaseDate || undefined,
+                }
+            : undefined,
       };
 
       return isEditing
@@ -1039,6 +1305,8 @@ export default function ProductFormPage() {
       queryClient.invalidateQueries({ queryKey: ["product", id] });
       queryClient.invalidateQueries({ queryKey: ["expenses"] });
       queryClient.invalidateQueries({ queryKey: ["expenses-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-movements"] });
 
       toast.success(isEditing ? "Producto actualizado" : "Producto creado");
       navigate("/dashboard/products");
@@ -1210,141 +1478,316 @@ export default function ProductFormPage() {
       />
 
       <div className="p-6 max-w-5xl space-y-6">
-        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">
-            Información básica
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <FieldLabel>Nombre</FieldLabel>
-              <Input
-                placeholder={
-                  isAutoBusiness
-                    ? "Se completa automáticamente desde marca, modelo y versión"
-                    : isRopaBusiness
-                      ? "Ej: Remera Oversize Negra"
-                      : "Nombre del producto"
-                }
-                value={form.name}
-                onChange={(e) => {
-                  setNameTouched(true);
-                  setForm((prev) => ({
-                    ...prev,
-                    name: e.target.value,
-                  }));
-                }}
-                className="bg-secondary border-border"
-              />
-              {isAutoBusiness && (
-                <div className="pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={regenerateAutoName}
-                  >
-                    Usar marca/modelo/versión como nombre
-                  </Button>
-                </div>
-              )}
+        {isAutoBusiness && (
+          <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-sm font-semibold text-foreground">
+                Datos del vehículo
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                El nombre, slug y tags se generan automáticamente con estos datos.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <FieldLabel info="Se genera automáticamente desde el nombre. Podés editarlo si querés usar otro identificador corto para la URL o para organizar mejor tus productos.">
-                Slug
-              </FieldLabel>
-              <Input
-                placeholder="nombre-del-producto"
-                value={form.slug}
-                onChange={(e) => {
-                  setSlugTouched(true);
-                  setForm((prev) => ({
-                    ...prev,
-                    slug: slugify(e.target.value),
-                  }));
-                }}
-                className="bg-secondary border-border"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <FieldLabel info="El tipo se define automáticamente según el tipo de negocio cuando corresponde.">
-                Tipo
-              </FieldLabel>
-
-              {showManualProductTypeSelector ? (
-                <select
-                  value={form.productType ?? "general"}
-                  onChange={(e) =>
-                    setForm((prev) => {
-                      const nextType = e.target.value as ProductType;
-
-                      return {
-                        ...prev,
-                        productType: nextType,
-                        vehicleDetails:
-                          nextType === "auto" ? prev.vehicleDetails ?? {} : {},
-                        variants:
-                          nextType === "ropa"
-                            ? ensureAtLeastOneVariant(
-                                prev.variants as ProductVariantForm[],
-                              )
-                            : [],
-                        stock:
-                          nextType === "auto"
-                            ? 1
-                            : nextType === "ropa"
-                              ? (prev.variants ?? []).reduce(
-                                  (acc, variant) =>
-                                    acc + Number(variant.stock || 0),
-                                  0,
-                                )
-                              : prev.stock ?? 0,
-                      };
-                    })
-                  }
-                  className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
-                >
-                  <option value="general">General</option>
-                  <option value="auto">Auto</option>
-                  <option value="ropa">Ropa</option>
-                </select>
-              ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <FieldLabel>Marca</FieldLabel>
                 <Input
-                  value={
-                    effectiveProductType === "auto"
-                      ? "Auto"
-                      : effectiveProductType === "ropa"
-                        ? "Ropa"
-                        : "General"
-                  }
-                  readOnly
+                  placeholder="Ej: Peugeot"
+                  value={form.vehicleDetails?.brand ?? ""}
+                  onChange={setVehicleText("brand")}
                   className="bg-secondary border-border"
                 />
-              )}
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Modelo</FieldLabel>
+                <Input
+                  placeholder="Ej: 208"
+                  value={form.vehicleDetails?.model ?? ""}
+                  onChange={setVehicleText("model")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Versión</FieldLabel>
+                <Input
+                  placeholder="Ej: Allure"
+                  value={form.vehicleDetails?.version ?? ""}
+                  onChange={setVehicleText("version")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Año</FieldLabel>
+                <Input
+                  type="number"
+                  placeholder="2022"
+                  value={form.vehicleDetails?.year ?? ""}
+                  onChange={setVehicleNumber("year")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>KMS</FieldLabel>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="36.000"
+                  value={kmsInput}
+                  onFocus={handleKmsFocus}
+                  onChange={(e) => handleKmsChange(e.target.value)}
+                  onBlur={handleKmsBlur}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Combustible</FieldLabel>
+                <Input
+                  placeholder="Nafta"
+                  value={form.vehicleDetails?.fuelType ?? ""}
+                  onChange={setVehicleText("fuelType")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Transmisión</FieldLabel>
+                <Input
+                  placeholder="Manual"
+                  value={form.vehicleDetails?.transmission ?? ""}
+                  onChange={setVehicleText("transmission")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Color</FieldLabel>
+                <Input
+                  placeholder="Negro"
+                  value={form.vehicleDetails?.color ?? ""}
+                  onChange={setVehicleText("color")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Patente</FieldLabel>
+                <Input
+                  placeholder="AB123CD"
+                  value={form.vehicleDetails?.plate ?? ""}
+                  onChange={setVehicleText("plate")}
+                  className="bg-secondary border-border"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Vista previa:</span>{" "}
+              {buildAutoName(form.vehicleDetails) || "Todavía no hay nombre generado"}
             </div>
           </div>
+        )}
 
-          <div className="space-y-2">
-            <FieldLabel>Descripción</FieldLabel>
-            <Textarea
-              placeholder={
-                isAutoBusiness
-                  ? "Descripción del vehículo..."
-                  : isRopaBusiness
-                    ? "Descripción de la prenda..."
-                    : "Descripción del producto..."
-              }
-              value={form.description}
-              onChange={setText("description")}
-              className="bg-secondary border-border min-h-[100px]"
-            />
+        {!isAutoBusiness && (
+          <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+            <h2 className="text-sm font-semibold text-foreground">
+              Información básica
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <FieldLabel>Nombre</FieldLabel>
+                <Input
+                  placeholder={
+                    isRopaBusiness
+                      ? "Ej: Remera Oversize Negra"
+                      : "Nombre del producto"
+                  }
+                  value={form.name}
+                  onChange={(e) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }));
+                  }}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel info="Se genera automáticamente desde el nombre. Podés editarlo si querés usar otro identificador corto para la URL o para organizar mejor tus productos.">
+                  Slug
+                </FieldLabel>
+                <Input
+                  placeholder="nombre-del-producto"
+                  value={form.slug}
+                  onChange={(e) => {
+                    setSlugTouched(true);
+                    setForm((prev) => ({
+                      ...prev,
+                      slug: slugify(e.target.value),
+                    }));
+                  }}
+                  className="bg-secondary border-border"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel info="El tipo se define automáticamente según el tipo de negocio cuando corresponde.">
+                  Tipo
+                </FieldLabel>
+
+                {showManualProductTypeSelector ? (
+                  <select
+                    value={form.productType ?? "general"}
+                    onChange={(e) =>
+                      setForm((prev) => {
+                        const nextType = e.target.value as ProductType;
+
+                        return {
+                          ...prev,
+                          productType: nextType,
+                          vehicleDetails:
+                            nextType === "auto" ? prev.vehicleDetails ?? {} : {},
+                          variants:
+                            nextType === "ropa"
+                              ? ensureAtLeastOneVariant(
+                                  prev.variants as ProductVariantForm[],
+                                )
+                              : [],
+                          stock:
+                            nextType === "auto"
+                              ? 1
+                              : nextType === "ropa"
+                                ? (prev.variants ?? []).reduce(
+                                    (acc, variant) =>
+                                      acc + Number(variant.stock || 0),
+                                    0,
+                                  )
+                                : prev.stock ?? 0,
+                        };
+                      })
+                    }
+                    className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
+                  >
+                    <option value="general">General</option>
+                    <option value="auto">Auto</option>
+                    <option value="ropa">Ropa</option>
+                  </select>
+                ) : (
+                  <Input
+                    value={
+                      effectiveProductType === "auto"
+                        ? "Auto"
+                        : effectiveProductType === "ropa"
+                          ? "Ropa"
+                          : "General"
+                    }
+                    readOnly
+                    className="bg-secondary border-border"
+                  />
+                )}
+              </div>
+            </div>
           </div>
+        )}
+
+        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">
+            Descripción
+          </h2>
+
+          <Textarea
+            placeholder={
+              isAutoBusiness
+                ? "Descripción del vehículo..."
+                : isRopaBusiness
+                  ? "Descripción de la prenda..."
+                  : "Descripción del producto..."
+            }
+            value={form.description}
+            onChange={setText("description")}
+            className="bg-secondary border-border min-h-[120px]"
+          />
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Categoría</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+            <div className="space-y-2">
+              <FieldLabel info="Las categorías se toman de los productos ya guardados en este negocio. Si escribís una nueva, se guarda cuando guardás el producto.">
+                Categoría del producto
+              </FieldLabel>
+
+              <select
+                value={form.category ?? ""}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    category: e.target.value,
+                  }))
+                }
+                className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
+              >
+                <option value="">
+                  {categoryOptions.length > 0
+                    ? "Seleccionar categoría"
+                    : "Todavía no hay categorías guardadas"}
+                </option>
+
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <FieldLabel>Nueva categoría</FieldLabel>
+              <Input
+                placeholder={
+                  isRopaBusiness
+                    ? "Ej: Zapatillas"
+                    : isAutoBusiness
+                      ? "Ej: SUV"
+                      : "Nueva categoría"
+                }
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCategory();
+                  }
+                }}
+                className="bg-secondary border-border"
+              />
+            </div>
+
+            <Button type="button" variant="outline" onClick={addCategory}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Crear
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Las categorías salen de los productos ya guardados. Si creás una nueva, queda disponible cuando guardes este producto.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+          <h2 className="text-sm font-semibold text-foreground">Precio</h2>
 
           <div
             className={`grid grid-cols-1 ${
-              isAutoBusiness ? "md:grid-cols-3" : "md:grid-cols-4"
+              isAutoBusiness ? "md:grid-cols-2" : "md:grid-cols-4"
             } gap-4`}
           >
             <div className="space-y-2">
@@ -1402,88 +1845,9 @@ export default function ProductFormPage() {
                 />
               </div>
             )}
-
-            <div className="space-y-2">
-              <FieldLabel info="No hay categorías default. Creá las categorías propias de este negocio y después elegilas desde el selector.">
-                Categoría
-              </FieldLabel>
-
-              <select
-                value={form.category ?? ""}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    category: e.target.value,
-                  }))
-                }
-                className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
-              >
-                <option value="">
-                  {categoryOptions.length > 0
-                    ? "Seleccionar categoría"
-                    : "Primero creá una categoría"}
-                </option>
-
-                {categoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <Input
-                  placeholder={
-                    isRopaBusiness
-                      ? "Nueva categoría, ej: Zapatillas"
-                      : isAutoBusiness
-                        ? "Nueva categoría, ej: SUV"
-                        : "Nueva categoría"
-                  }
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addCategory();
-                    }
-                  }}
-                  className="bg-secondary border-border"
-                />
-
-                <Button type="button" variant="outline" onClick={addCategory}>
-                  <Plus className="h-4 w-4 mr-1.5" />
-                  Crear
-                </Button>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Las categorías se guardan localmente para este negocio y se reutilizan en próximos productos.
-              </p>
-            </div>
           </div>
 
-          <div className="space-y-2">
-            <FieldLabel info="Palabras clave opcionales para organizar y encontrar mejor el producto. Separalas con coma.">
-              Tags
-            </FieldLabel>
-            <Input
-              placeholder="Separados por coma"
-              value={(form.tags || []).join(", ")}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  tags: e.target.value
-                    .split(",")
-                    .map((t) => t.trim())
-                    .filter(Boolean),
-                }))
-              }
-              className="bg-secondary border-border"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             <div className="space-y-2">
               <FieldLabel>Estado</FieldLabel>
               <select
@@ -1668,122 +2032,6 @@ export default function ProductFormPage() {
           </div>
         )}
 
-        {isAutoBusiness && (
-          <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-foreground">
-                Datos del auto
-              </h2>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={regenerateAutoName}
-              >
-                Usar marca/modelo/versión como nombre
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <FieldLabel>Marca</FieldLabel>
-                <Input
-                  placeholder="Ej: Peugeot"
-                  value={form.vehicleDetails?.brand ?? ""}
-                  onChange={setVehicleText("brand")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Modelo</FieldLabel>
-                <Input
-                  placeholder="Ej: 208"
-                  value={form.vehicleDetails?.model ?? ""}
-                  onChange={setVehicleText("model")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Versión</FieldLabel>
-                <Input
-                  placeholder="Ej: Allure"
-                  value={form.vehicleDetails?.version ?? ""}
-                  onChange={setVehicleText("version")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Año</FieldLabel>
-                <Input
-                  type="number"
-                  placeholder="2022"
-                  value={form.vehicleDetails?.year ?? ""}
-                  onChange={setVehicleNumber("year")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>KMS</FieldLabel>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="36.000"
-                  value={kmsInput}
-                  onFocus={handleKmsFocus}
-                  onChange={(e) => handleKmsChange(e.target.value)}
-                  onBlur={handleKmsBlur}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Combustible</FieldLabel>
-                <Input
-                  placeholder="Nafta"
-                  value={form.vehicleDetails?.fuelType ?? ""}
-                  onChange={setVehicleText("fuelType")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Transmisión</FieldLabel>
-                <Input
-                  placeholder="Manual"
-                  value={form.vehicleDetails?.transmission ?? ""}
-                  onChange={setVehicleText("transmission")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Color</FieldLabel>
-                <Input
-                  placeholder="Negro"
-                  value={form.vehicleDetails?.color ?? ""}
-                  onChange={setVehicleText("color")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <FieldLabel>Patente</FieldLabel>
-                <Input
-                  placeholder="AB123CD"
-                  value={form.vehicleDetails?.plate ?? ""}
-                  onChange={setVehicleText("plate")}
-                  className="bg-secondary border-border"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="rounded-lg border border-border bg-card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-foreground">Imágenes</h2>
 
@@ -1877,24 +2125,106 @@ export default function ProductFormPage() {
 
         <div className="rounded-lg border border-border bg-card p-6 space-y-4">
           <h2 className="text-sm font-semibold text-foreground">
-            Finanzas internas
+            Finanzas internas y gastos
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <FieldLabel>Costo</FieldLabel>
-              <Input
-                type="text"
-                inputMode="decimal"
-                placeholder="0,00"
-                value={costPriceInput}
-                onFocus={handleCostPriceFocus}
-                onChange={(e) => handleCostPriceChange(e.target.value)}
-                onBlur={handleCostPriceBlur}
-                className="bg-secondary border-border"
-              />
-            </div>
+          {isAutoBusiness && (
+            <div className="space-y-4 rounded-lg border border-border bg-secondary/20 p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <FieldLabel info="Propia: el auto es de la agencia. Consignación: el auto es de un dueño y se liquida un monto acordado al venderlo.">
+                    Tipo de unidad
+                  </FieldLabel>
+                  <select
+                    value={ownershipType}
+                    onChange={(e) =>
+                      setOwnershipType(e.target.value as "owned" | "consignment")
+                    }
+                    className="flex h-10 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
+                  >
+                    <option value="owned">Propia</option>
+                    <option value="consignment">Consignación</option>
+                  </select>
+                </div>
 
+                {isOwnedVehicle && (
+                  <>
+                    <div className="space-y-2">
+                      <FieldLabel>Fecha de compra</FieldLabel>
+                      <Input
+                        type="date"
+                        value={toDateInputValue(form.ownership?.purchaseDate)}
+                        onChange={(e) => setOwnershipPurchaseDate(e.target.value)}
+                        className="bg-secondary border-border"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <FieldLabel>Costo de compra</FieldLabel>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={costPriceInput}
+                        onFocus={handleCostPriceFocus}
+                        onChange={(e) => handleCostPriceChange(e.target.value)}
+                        onBlur={handleCostPriceBlur}
+                        className="bg-secondary border-border"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isConsignment && (
+                  <>
+                    <div className="space-y-2">
+                      <FieldLabel>Dueño consignante</FieldLabel>
+                      <Input
+                        placeholder="Ej: Juan Pérez"
+                        value={form.ownership?.consignorName ?? ""}
+                        onChange={setOwnershipText("consignorName")}
+                        className="bg-secondary border-border"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <FieldLabel>Teléfono del dueño</FieldLabel>
+                      <Input
+                        placeholder="Ej: 5491112345678"
+                        value={form.ownership?.consignorPhone ?? ""}
+                        onChange={setOwnershipText("consignorPhone")}
+                        className="bg-secondary border-border"
+                      />
+                    </div>
+
+                    <div className="space-y-2 md:col-span-3">
+                      <FieldLabel info="Es el monto fijo que se le entrega al dueño cuando se vende el auto. La diferencia queda como ganancia de la agencia.">
+                        Monto a entregar al dueño
+                      </FieldLabel>
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={ownerExpectedAmountInput}
+                        onFocus={handleOwnerExpectedAmountFocus}
+                        onChange={(e) =>
+                          handleOwnerExpectedAmountChange(e.target.value)
+                        }
+                        onBlur={handleOwnerExpectedAmountBlur}
+                        className="bg-secondary border-border"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                La moneda de compra, venta o liquidación la define el campo Moneda del producto. Los gastos extra se cargan siempre en pesos argentinos.
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <FieldLabel>Venta estimada</FieldLabel>
               <Input
@@ -1925,6 +2255,24 @@ export default function ProductFormPage() {
               />
             </div>
           </div>
+
+          {!isAutoBusiness && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <FieldLabel>Costo</FieldLabel>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="0,00"
+                  value={costPriceInput}
+                  onFocus={handleCostPriceFocus}
+                  onChange={(e) => handleCostPriceChange(e.target.value)}
+                  onBlur={handleCostPriceBlur}
+                  className="bg-secondary border-border"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             <FieldLabel info="Podés cargar varios gastos por separado, por ejemplo batería, lavado o pulido. El total se calcula automáticamente.">
