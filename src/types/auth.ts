@@ -7,6 +7,11 @@ export interface AuthUser {
   role: UserRole;
   businessId?: string;
   businessName?: string;
+  businessLogoUrl?: string;
+  isActive?: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuthState {

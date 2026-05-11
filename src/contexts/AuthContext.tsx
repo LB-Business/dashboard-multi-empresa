@@ -12,6 +12,8 @@ type UserRole = "SUPER_ADMIN" | "OWNER" | "ADMIN" | "EDITOR";
 type AuthUser = {
   id: string;
   businessId: string;
+  businessName: string;
+  businessLogoUrl?: string;
   name: string;
   email: string;
   role: UserRole;
