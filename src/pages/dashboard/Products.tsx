@@ -226,6 +226,21 @@ function getVariantLabel(variant?: ProductVariant | null) {
   return variant?.sku || "Variante";
 }
 
+function getReservationDeposit(product?: Product | null) {
+  return Number(product?.reservation?.depositAmount ?? 0);
+}
+
+function getPendingPayment(product: Product | null, finalPriceValue: string) {
+  const finalPrice = Number(finalPriceValue || 0);
+  const deposit = getReservationDeposit(product);
+
+  return Math.max(finalPrice - deposit, 0);
+}
+
+function hasActiveDeposit(product?: Product | null) {
+  return getReservationDeposit(product) > 0;
+}
+
 export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -577,8 +592,19 @@ export default function ProductsPage() {
           isPublished: false,
           soldAt: toIsoFromDateInput(soldDate),
           finalSalePrice: Number(soldPrice),
-          variantIndex,
-          quantity,
+          clearReservation: true,
+          reservation: {
+            depositAmount: 0,
+            depositCurrency:
+              selectedProduct.reservation?.depositCurrency ??
+              selectedProduct.currency,
+            depositDate: undefined,
+            customerName:
+              selectedProduct.reservation?.customerName ?? undefined,
+            customerPhone:
+              selectedProduct.reservation?.customerPhone ?? undefined,
+            notes: selectedProduct.reservation?.notes ?? undefined,
+          },
         },
       });
 
@@ -1696,6 +1722,53 @@ export default function ProductsPage() {
                 )}
               </>
             )}
+            {hasActiveDeposit(selectedProduct) && (
+              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2 text-sm">
+                <p className="font-medium text-foreground">
+                  Este auto tiene una seña cargada
+                </p>
+
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Seña recibida</span>
+                    <span className="font-medium text-foreground">
+                      {formatMoneyWithCurrency(
+                        selectedProduct?.reservation?.depositAmount,
+                        selectedProduct?.reservation?.depositCurrency ??
+                          selectedProduct?.currency,
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      Total de venta
+                    </span>
+                    <span className="font-medium text-foreground">
+                      {formatMoneyWithCurrency(
+                        Number(soldPrice || 0),
+                        selectedProduct?.currency,
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-border pt-2">
+                    <span className="text-muted-foreground">Falta pagar</span>
+                    <span className="font-semibold text-foreground">
+                      {formatMoneyWithCurrency(
+                        getPendingPayment(selectedProduct, soldPrice),
+                        selectedProduct?.currency,
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Al registrar la venta, la seña queda en $0 para que no siga
+                  apareciendo como seña activa.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Precio final de venta</Label>
@@ -1729,7 +1802,7 @@ export default function ProductsPage() {
                 <>
                   Este cambio marcará el producto como{" "}
                   <span className="text-foreground font-medium">vendido</span>,
-                  guardará la fecha y el precio final real de cierre.
+                  guardará el total real de la venta y limpiará la seña activa.
                 </>
               )}
             </div>
