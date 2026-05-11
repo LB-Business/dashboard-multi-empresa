@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 
 export type ProductType = "general" | "auto" | "ropa";
+
 export type ProductStatus =
   | "draft"
   | "published"
@@ -8,6 +9,7 @@ export type ProductStatus =
   | "sold"
   | "archived"
   | "out_of_stock";
+
 export type Currency = "ARS" | "USD";
 
 export interface ProductImage {
@@ -15,6 +17,16 @@ export interface ProductImage {
   publicId: string;
   order: number;
   isCover: boolean;
+}
+
+export interface ProductDocument {
+  label: string;
+  type: string;
+  url: string;
+  publicId: string;
+  fileName?: string | null;
+  mimeType?: string | null;
+  uploadedAt?: string | null;
 }
 
 export interface ProductVariant {
@@ -70,6 +82,14 @@ export interface ProductFinance {
   internalNotes?: string | null;
   estimatedProfit?: number | null;
   realProfit?: number | null;
+  estimatedProfitByCurrency?: {
+    ARS: number;
+    USD: number;
+  };
+  realProfitByCurrency?: {
+    ARS: number;
+    USD: number;
+  };
 }
 
 export interface Product {
@@ -87,6 +107,7 @@ export interface Product {
   tags?: string[];
   coverImage?: ProductImage | null;
   images?: ProductImage[];
+  documents?: ProductDocument[];
   variants?: ProductVariant[];
   vehicleDetails?: ProductVehicleDetails | null;
   ownership?: ProductOwnership | null;
@@ -110,12 +131,24 @@ export interface CreateProductPayload {
   stock?: number;
   category?: string;
   tags?: string[];
+
   images?: {
     url: string;
     publicId: string;
     order?: number;
     isCover?: boolean;
   }[];
+
+  documents?: {
+    label: string;
+    type: string;
+    url: string;
+    publicId: string;
+    fileName?: string;
+    mimeType?: string;
+    uploadedAt?: string;
+  }[];
+
   variants?: {
     size?: string;
     color?: string;
@@ -123,6 +156,7 @@ export interface CreateProductPayload {
     salePrice?: number;
     stock: number;
   }[];
+
   vehicleDetails?: {
     brand?: string;
     model?: string;
@@ -134,6 +168,7 @@ export interface CreateProductPayload {
     color?: string;
     plate?: string;
   };
+
   ownership?: {
     ownershipType?: "owned" | "consignment";
     purchasePrice?: number;
@@ -142,6 +177,7 @@ export interface CreateProductPayload {
     consignorName?: string;
     consignorPhone?: string;
   };
+
   reservation?: {
     depositAmount?: number;
     depositCurrency?: Currency;
@@ -150,17 +186,20 @@ export interface CreateProductPayload {
     customerPhone?: string;
     notes?: string;
   };
+
   status?: ProductStatus;
   isPublished?: boolean;
   soldAt?: string;
   costPrice?: number;
   estimatedSalePrice?: number;
   finalSalePrice?: number;
+
   extraExpenseItems?: {
     label: string;
     amount: number;
     expenseDate?: string;
   }[];
+
   internalNotes?: string;
 }
 

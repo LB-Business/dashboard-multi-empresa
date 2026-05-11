@@ -46,6 +46,7 @@ class ApiClient {
 
       if (refreshed) {
         const retryToken = this.getToken();
+
         const retryHeaders: Record<string, string> = {
           ...((options.headers as Record<string, string>) || {}),
         };
@@ -130,14 +131,21 @@ class ApiClient {
   post<T>(endpoint: string, body?: unknown) {
     return this.request<T>(endpoint, {
       method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  put<T>(endpoint: string, body?: unknown) {
+    return this.request<T>(endpoint, {
+      method: "PUT",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
 
   patch<T>(endpoint: string, body?: unknown) {
     return this.request<T>(endpoint, {
       method: "PATCH",
-      body: body ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   }
 

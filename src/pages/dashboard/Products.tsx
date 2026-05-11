@@ -37,6 +37,9 @@ import {
   Trash2,
   Shirt,
   Boxes,
+  FileText,
+  ExternalLink,
+  Download,
 } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -69,7 +72,7 @@ function getStatusLabel(status?: string) {
 }
 
 function getStatusVariant(
-  status?: string
+  status?: string,
 ): "default" | "secondary" | "outline" {
   switch (status) {
     case "published":
@@ -93,7 +96,7 @@ function formatMoney(value?: number | null) {
 
 function formatMoneyWithCurrency(
   value?: number | null,
-  currency?: Currency | null
+  currency?: Currency | null,
 ) {
   if (value === null || value === undefined) return "-";
   return `${currency ?? "ARS"} ${Number(value).toLocaleString("es-AR")}`;
@@ -143,6 +146,38 @@ function getProductTypeLabel(type?: string) {
   }
 }
 
+function getDocumentTypeLabel(type?: string) {
+  switch (type) {
+    case "cedula":
+      return "Cédula";
+    case "titulo":
+      return "Título";
+    case "formulario_08":
+      return "Formulario 08";
+    case "verificacion_policial":
+      return "Verificación policial";
+    case "informe_dominio":
+      return "Informe dominio";
+    case "seguro":
+      return "Seguro";
+    case "vendedor":
+      return "Documento vendedor";
+    case "comprador":
+      return "Documento comprador";
+    case "otro":
+    default:
+      return "Otro";
+  }
+}
+
+function getDocumentViewUrl(url?: string | null) {
+  return url || "#";
+}
+
+function getDocumentDownloadUrl(url?: string | null) {
+  return url || "#";
+}
+
 function getProductSummary(product: Product) {
   if (product.productType === "auto") {
     return [
@@ -161,7 +196,7 @@ function getProductSummary(product: Product) {
     const totalStock =
       product.variants?.reduce(
         (acc, variant) => acc + Number(variant.stock || 0),
-        0
+        0,
       ) ??
       product.stock ??
       0;
@@ -178,7 +213,7 @@ function getTotalVariantStock(product: Product) {
   return (
     product.variants?.reduce(
       (acc, variant) => acc + Number(variant.stock || 0),
-      0
+      0,
     ) ??
     product.stock ??
     0
@@ -195,7 +230,9 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState<"all" | ProductStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | ProductStatus>(
+    "all",
+  );
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const [soldFrom, setSoldFrom] = useState("");
@@ -321,17 +358,25 @@ export default function ProductsPage() {
         (p.vehicleDetails?.model ?? "").toLowerCase().includes(q) ||
         (p.vehicleDetails?.version ?? "").toLowerCase().includes(q) ||
         (p.vehicleDetails?.plate ?? "").toLowerCase().includes(q) ||
+        (p.documents ?? []).some(
+          (document) =>
+            (document.label ?? "").toLowerCase().includes(q) ||
+            (document.type ?? "").toLowerCase().includes(q) ||
+            (document.fileName ?? "").toLowerCase().includes(q),
+        ) ||
         (p.variants ?? []).some(
           (variant) =>
             (variant.size ?? "").toLowerCase().includes(q) ||
             (variant.color ?? "").toLowerCase().includes(q) ||
-            (variant.sku ?? "").toLowerCase().includes(q)
+            (variant.sku ?? "").toLowerCase().includes(q),
         );
 
       const matchesStatus =
         statusFilter === "all" ? true : p.status === statusFilter;
 
-      const createdAtTime = p.createdAt ? new Date(p.createdAt).getTime() : null;
+      const createdAtTime = p.createdAt
+        ? new Date(p.createdAt).getTime()
+        : null;
       const soldAtTime = p.soldAt ? new Date(p.soldAt).getTime() : null;
 
       const createdFromTime = createdFrom
@@ -394,7 +439,16 @@ export default function ProductsPage() {
     });
 
     return filteredList;
-  }, [products, search, statusFilter, createdFrom, createdTo, soldFrom, soldTo, sortBy]);
+  }, [
+    products,
+    search,
+    statusFilter,
+    createdFrom,
+    createdTo,
+    soldFrom,
+    soldTo,
+    sortBy,
+  ]);
 
   const toggleExpand = (productId: string) => {
     setExpandedId((prev) => (prev === productId ? null : productId));
@@ -405,13 +459,13 @@ export default function ProductsPage() {
     setDepositAmount(
       product.reservation?.depositAmount != null
         ? String(product.reservation.depositAmount)
-        : ""
+        : "",
     );
     setDepositCurrency(
-      product.reservation?.depositCurrency ?? product.currency ?? "ARS"
+      product.reservation?.depositCurrency ?? product.currency ?? "ARS",
     );
     setDepositDate(
-      product.reservation?.depositDate?.slice(0, 10) ?? todayLocalDate()
+      product.reservation?.depositDate?.slice(0, 10) ?? todayLocalDate(),
     );
     setCustomerName(product.reservation?.customerName ?? "");
     setCustomerPhone(product.reservation?.customerPhone ?? "");
@@ -425,19 +479,19 @@ export default function ProductsPage() {
     setSoldPrice(
       product.finance?.finalSalePrice != null
         ? String(product.finance.finalSalePrice)
-        : String(product.salePrice ?? "")
+        : String(product.salePrice ?? ""),
     );
 
     const hasVariants = (product.variants?.length ?? 0) > 0;
     if (hasVariants) {
       const firstAvailableIndex = product.variants?.findIndex(
-        (variant) => Number(variant.stock ?? 0) > 0
+        (variant) => Number(variant.stock ?? 0) > 0,
       );
 
       setSelectedVariantIndex(
         firstAvailableIndex !== undefined && firstAvailableIndex >= 0
           ? String(firstAvailableIndex)
-          : ""
+          : "",
       );
     } else {
       setSelectedVariantIndex("");
@@ -583,7 +637,7 @@ export default function ProductsPage() {
     }
 
     const confirmed = window.confirm(
-      `¿Seguro que querés eliminar "${product.name}"? Esta acción no se puede deshacer.`
+      `¿Seguro que querés eliminar "${product.name}"? Esta acción no se puede deshacer.`,
     );
 
     if (!confirmed) return;
@@ -671,7 +725,11 @@ export default function ProductsPage() {
             value={sortBy}
             onChange={(e) =>
               setSortBy(
-                e.target.value as "newest" | "oldest" | "price_desc" | "price_asc"
+                e.target.value as
+                  | "newest"
+                  | "oldest"
+                  | "price_desc"
+                  | "price_asc",
               )
             }
             className="flex h-9 w-full rounded-md border border-border bg-secondary px-3 py-2 text-sm text-foreground"
@@ -739,17 +797,15 @@ export default function ProductsPage() {
                 {filtered.map((product) => {
                   const productId = product.id ?? product._id ?? "";
                   const imageUrl =
-                    product.coverImage?.url ??
-                    product.images?.[0]?.url ??
-                    null;
+                    product.coverImage?.url ?? product.images?.[0]?.url ?? null;
                   const isExpanded = expandedId === productId;
 
                   const stockLabel =
                     product.productType === "auto"
                       ? "-"
                       : product.productType === "ropa"
-                      ? String(getTotalVariantStock(product))
-                      : String(product.stock ?? 0);
+                        ? String(getTotalVariantStock(product))
+                        : String(product.stock ?? 0);
 
                   return (
                     <Fragment key={productId || product.slug || product.name}>
@@ -843,7 +899,9 @@ export default function ProductsPage() {
                               <DropdownMenuItem
                                 onClick={() => {
                                   if (productId) {
-                                    navigate(`/dashboard/products/${productId}`);
+                                    navigate(
+                                      `/dashboard/products/${productId}`,
+                                    );
                                   }
                                 }}
                               >
@@ -893,7 +951,9 @@ export default function ProductsPage() {
                               {product.status !== "published" &&
                                 product.status !== "reserved" && (
                                   <DropdownMenuItem
-                                    onClick={() => handleBackToPublished(product)}
+                                    onClick={() =>
+                                      handleBackToPublished(product)
+                                    }
                                   >
                                     <RotateCcw className="mr-2 h-4 w-4" />
                                     Volver a publicado
@@ -936,7 +996,9 @@ export default function ProductsPage() {
                                         Tipo
                                       </p>
                                       <p className="text-foreground font-medium">
-                                        {getProductTypeLabel(product.productType)}
+                                        {getProductTypeLabel(
+                                          product.productType,
+                                        )}
                                       </p>
                                     </div>
 
@@ -963,7 +1025,9 @@ export default function ProductsPage() {
                                         Fecha de seña
                                       </p>
                                       <p className="text-foreground font-medium">
-                                        {formatDate(product.reservation?.depositDate)}
+                                        {formatDate(
+                                          product.reservation?.depositDate,
+                                        )}
                                       </p>
                                     </div>
 
@@ -976,6 +1040,110 @@ export default function ProductsPage() {
                                       </p>
                                     </div>
                                   </div>
+                                </div>
+
+                                <div>
+                                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+                                    <FileText className="h-3.5 w-3.5" />
+                                    Documentos
+                                  </p>
+
+                                  {(product.documents?.length ?? 0) === 0 ? (
+                                    <div className="rounded-md border border-border p-3 text-sm text-muted-foreground">
+                                      No hay documentos cargados.
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-md border border-border p-3">
+                                      <div className="space-y-3">
+                                        {product.documents?.map(
+                                          (document, index) => {
+                                            const documentName =
+                                              document.fileName ||
+                                              document.label ||
+                                              "documento";
+
+                                            return (
+                                              <div
+                                                key={`${document.publicId}-${index}`}
+                                                className="flex flex-col gap-3 rounded-md border border-border/70 bg-background/40 p-3 md:flex-row md:items-center md:justify-between"
+                                              >
+                                                <div className="min-w-0 flex items-start gap-3">
+                                                  <div className="rounded-md bg-secondary p-2">
+                                                    <FileText className="h-4 w-4 text-muted-foreground" />
+                                                  </div>
+
+                                                  <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-foreground truncate">
+                                                      {document.label ||
+                                                        document.fileName ||
+                                                        "Documento"}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      {getDocumentTypeLabel(
+                                                        document.type,
+                                                      )}
+                                                      {document.fileName
+                                                        ? ` • ${document.fileName}`
+                                                        : ""}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                      Subido:{" "}
+                                                      {formatDate(
+                                                        document.uploadedAt,
+                                                      )}
+                                                    </p>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex shrink-0 gap-2">
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    asChild
+                                                  >
+                                                    <a
+                                                      href={getDocumentViewUrl(
+                                                        document.url,
+                                                      )}
+                                                      target="_blank"
+                                                      rel="noreferrer"
+                                                    >
+                                                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                                      Ver
+                                                    </a>
+                                                  </Button>
+
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    asChild
+                                                  >
+                                                    <a
+                                                      href={getDocumentDownloadUrl(
+                                                        document.url,
+                                                      )}
+                                                      download={
+                                                        document.fileName ||
+                                                        document.label ||
+                                                        "documento"
+                                                      }
+                                                      target="_blank"
+                                                      rel="noreferrer"
+                                                    >
+                                                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                                                      Descargar
+                                                    </a>
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            );
+                                          },
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
 
                                 {product.reservation && (
@@ -992,7 +1160,7 @@ export default function ProductsPage() {
                                         <p className="text-foreground font-medium">
                                           {formatMoneyWithCurrency(
                                             product.reservation.depositAmount,
-                                            product.reservation.depositCurrency
+                                            product.reservation.depositCurrency,
                                           )}
                                         </p>
                                       </div>
@@ -1002,7 +1170,8 @@ export default function ProductsPage() {
                                           Cliente
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {product.reservation.customerName || "-"}
+                                          {product.reservation.customerName ||
+                                            "-"}
                                         </p>
                                       </div>
 
@@ -1011,7 +1180,8 @@ export default function ProductsPage() {
                                           Teléfono
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {product.reservation.customerPhone || "-"}
+                                          {product.reservation.customerPhone ||
+                                            "-"}
                                         </p>
                                       </div>
 
@@ -1020,7 +1190,9 @@ export default function ProductsPage() {
                                           Registrada
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatDateTime(product.reservation.depositDate)}
+                                          {formatDateTime(
+                                            product.reservation.depositDate,
+                                          )}
                                         </p>
                                       </div>
                                     </div>
@@ -1071,7 +1243,8 @@ export default function ProductsPage() {
                                           Versión
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {product.vehicleDetails?.version || "-"}
+                                          {product.vehicleDetails?.version ||
+                                            "-"}
                                         </p>
                                       </div>
 
@@ -1089,7 +1262,9 @@ export default function ProductsPage() {
                                           KMS
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatKms(product.vehicleDetails?.kms)}
+                                          {formatKms(
+                                            product.vehicleDetails?.kms,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1098,7 +1273,8 @@ export default function ProductsPage() {
                                           Combustible
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {product.vehicleDetails?.fuelType || "-"}
+                                          {product.vehicleDetails?.fuelType ||
+                                            "-"}
                                         </p>
                                       </div>
 
@@ -1107,7 +1283,8 @@ export default function ProductsPage() {
                                           Transmisión
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {product.vehicleDetails?.transmission || "-"}
+                                          {product.vehicleDetails
+                                            ?.transmission || "-"}
                                         </p>
                                       </div>
 
@@ -1146,32 +1323,40 @@ export default function ProductsPage() {
                                     ) : (
                                       <div className="rounded-md border border-border p-3">
                                         <div className="space-y-2">
-                                          {product.variants?.map((variant, index) => (
-                                            <div
-                                              key={`${variant.sku || "variant"}-${index}`}
-                                              className="flex items-center justify-between gap-4 text-sm border-b border-border/60 pb-2 last:border-b-0 last:pb-0"
-                                            >
-                                              <div className="min-w-0">
-                                                <p className="text-foreground font-medium">
-                                                  {getVariantLabel(variant)}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                  {variant.sku || "Sin SKU"}
-                                                </p>
-                                              </div>
+                                          {product.variants?.map(
+                                            (variant, index) => (
+                                              <div
+                                                key={`${
+                                                  variant.sku || "variant"
+                                                }-${index}`}
+                                                className="flex items-center justify-between gap-4 text-sm border-b border-border/60 pb-2 last:border-b-0 last:pb-0"
+                                              >
+                                                <div className="min-w-0">
+                                                  <p className="text-foreground font-medium">
+                                                    {getVariantLabel(variant)}
+                                                  </p>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    {variant.sku || "Sin SKU"}
+                                                  </p>
+                                                </div>
 
-                                              <div className="text-right shrink-0">
-                                                <p className="text-foreground font-medium">
-                                                  {variant.salePrice != null
-                                                    ? formatMoney(variant.salePrice)
-                                                    : formatMoney(product.salePrice)}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Stock: {variant.stock ?? 0}
-                                                </p>
+                                                <div className="text-right shrink-0">
+                                                  <p className="text-foreground font-medium">
+                                                    {variant.salePrice != null
+                                                      ? formatMoney(
+                                                          variant.salePrice,
+                                                        )
+                                                      : formatMoney(
+                                                          product.salePrice,
+                                                        )}
+                                                  </p>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Stock: {variant.stock ?? 0}
+                                                  </p>
+                                                </div>
                                               </div>
-                                            </div>
-                                          ))}
+                                            ),
+                                          )}
                                         </div>
                                       </div>
                                     )}
@@ -1230,7 +1415,9 @@ export default function ProductsPage() {
                                           Costo
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.costPrice)}
+                                          {formatMoney(
+                                            product.finance.costPrice,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1239,7 +1426,9 @@ export default function ProductsPage() {
                                           Venta estimada
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.estimatedSalePrice)}
+                                          {formatMoney(
+                                            product.finance.estimatedSalePrice,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1248,7 +1437,9 @@ export default function ProductsPage() {
                                           Venta final
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.finalSalePrice)}
+                                          {formatMoney(
+                                            product.finance.finalSalePrice,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1257,7 +1448,9 @@ export default function ProductsPage() {
                                           Gastos extra
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.extraExpensesTotal)}
+                                          {formatMoney(
+                                            product.finance.extraExpensesTotal,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1266,7 +1459,9 @@ export default function ProductsPage() {
                                           Ganancia estimada
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.estimatedProfit)}
+                                          {formatMoney(
+                                            product.finance.estimatedProfit,
+                                          )}
                                         </p>
                                       </div>
 
@@ -1275,38 +1470,42 @@ export default function ProductsPage() {
                                           Ganancia real
                                         </p>
                                         <p className="text-foreground font-medium">
-                                          {formatMoney(product.finance.realProfit)}
+                                          {formatMoney(
+                                            product.finance.realProfit,
+                                          )}
                                         </p>
                                       </div>
                                     </div>
 
-                                    {(product.finance.extraExpenseItems ?? []).length > 0 && (
+                                    {(product.finance.extraExpenseItems ?? [])
+                                      .length > 0 && (
                                       <div className="rounded-md border border-border p-3 mt-3">
                                         <p className="text-xs text-muted-foreground mb-2">
                                           Detalle de gastos extra
                                         </p>
 
                                         <div className="space-y-2">
-                                          {(product.finance.extraExpenseItems ?? []).map(
-                                            (item, index) => (
-                                              <div
-                                                key={`${item.label}-${index}`}
-                                                className="flex items-center justify-between text-sm"
-                                              >
-                                                <div>
-                                                  <p className="text-foreground font-medium">
-                                                    {item.label}
-                                                  </p>
-                                                  <p className="text-xs text-muted-foreground">
-                                                    {formatDate(item.expenseDate)}
-                                                  </p>
-                                                </div>
-                                                <span className="text-foreground">
-                                                  {formatMoney(item.amount)}
-                                                </span>
+                                          {(
+                                            product.finance.extraExpenseItems ??
+                                            []
+                                          ).map((item, index) => (
+                                            <div
+                                              key={`${item.label}-${index}`}
+                                              className="flex items-center justify-between text-sm"
+                                            >
+                                              <div>
+                                                <p className="text-foreground font-medium">
+                                                  {item.label}
+                                                </p>
+                                                <p className="text-xs text-muted-foreground">
+                                                  {formatDate(item.expenseDate)}
+                                                </p>
                                               </div>
-                                            )
-                                          )}
+                                              <span className="text-foreground">
+                                                {formatMoney(item.amount)}
+                                              </span>
+                                            </div>
+                                          ))}
                                         </div>
                                       </div>
                                     )}
@@ -1470,7 +1669,11 @@ export default function ProductsPage() {
                   <Input
                     type="number"
                     min="1"
-                    max={selectedVariant ? Number(selectedVariant.stock ?? 0) : undefined}
+                    max={
+                      selectedVariant
+                        ? Number(selectedVariant.stock ?? 0)
+                        : undefined
+                    }
                     placeholder="1"
                     value={sellQuantity}
                     onChange={(e) => setSellQuantity(e.target.value)}
@@ -1486,8 +1689,8 @@ export default function ProductsPage() {
                       {getVariantLabel(selectedVariant)}
                     </p>
                     <p className="text-muted-foreground mt-1">
-                      SKU: {selectedVariant.sku || "Sin SKU"} • Stock disponible:{" "}
-                      {selectedVariant.stock ?? 0}
+                      SKU: {selectedVariant.sku || "Sin SKU"} • Stock
+                      disponible: {selectedVariant.stock ?? 0}
                     </p>
                   </div>
                 )}
@@ -1519,7 +1722,8 @@ export default function ProductsPage() {
                 <>
                   Se venderá la variante seleccionada y se descontará su stock.
                   Si era la última unidad disponible del producto, pasará a{" "}
-                  <span className="text-foreground font-medium">sin stock</span>.
+                  <span className="text-foreground font-medium">sin stock</span>
+                  .
                 </>
               ) : (
                 <>

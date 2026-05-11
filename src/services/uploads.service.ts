@@ -7,9 +7,12 @@ export interface UploadResponse {
   folder?: string;
   width?: number;
   height?: number;
-  format?: string;
+  format?: string | null;
   bytes?: number;
   originalFilename?: string;
+  fileName?: string;
+  mimeType?: string;
+  uploadedAt?: string;
   business?: {
     id: string;
     slug: string;
@@ -20,6 +23,8 @@ export interface UploadResponse {
 const MAX_ORIGINAL_IMAGE_SIZE_MB = 10;
 const MAX_FINAL_IMAGE_SIZE_MB = 0.95;
 const MAX_FINAL_IMAGE_SIZE_BYTES = MAX_FINAL_IMAGE_SIZE_MB * 1024 * 1024;
+
+const MAX_DOCUMENT_SIZE_MB = 10;
 
 function getFileSizeMb(file: Blob) {
   return file.size / 1024 / 1024;
@@ -76,15 +81,6 @@ async function compressImageUnder1MB(file: File): Promise<File> {
 
     lastCompressedFile = compressedFile;
 
-    console.log("Compresión de imagen:", {
-      originalName: file.name,
-      originalSizeMB: originalSizeMb.toFixed(2),
-      finalName: compressedFile.name,
-      finalSizeMB: getFileSizeMb(compressedFile).toFixed(2),
-      maxWidthOrHeight: attempt.maxWidthOrHeight,
-      quality: attempt.initialQuality,
-    });
-
     if (compressedFile.size <= MAX_FINAL_IMAGE_SIZE_BYTES) {
       return compressedFile;
     }
@@ -99,6 +95,24 @@ async function compressImageUnder1MB(file: File): Promise<File> {
   );
 }
 
+function validateDocument(file: File) {
+  const allowedTypes = [
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+  ];
+
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error("Solo se permiten documentos PDF, JPG, PNG o WEBP.");
+  }
+
+  if (getFileSizeMb(file) > MAX_DOCUMENT_SIZE_MB) {
+    throw new Error(`El documento no puede superar los ${MAX_DOCUMENT_SIZE_MB}MB.`);
+  }
+}
+
 export const uploadsService = {
   uploadImage: async (file: File) => {
     const compressedFile = await compressImageUnder1MB(file);
@@ -110,8 +124,23 @@ export const uploadsService = {
     );
   },
 
+  uploadDocument: async (file: File) => {
+    validateDocument(file);
+
+    return api.upload<UploadResponse>(
+      "/uploads/document",
+      file,
+      "file",
+    );
+  },
+
   deleteImage: (publicId: string) =>
     api.delete("/uploads/image", {
+      body: JSON.stringify({ publicId }),
+    }),
+
+  deleteDocument: (publicId: string) =>
+    api.delete("/uploads/document", {
       body: JSON.stringify({ publicId }),
     }),
 };
