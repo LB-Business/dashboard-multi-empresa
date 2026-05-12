@@ -17,19 +17,6 @@ import { uploadsService } from "@/services/uploads.service";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
-}
-
 type DayKey =
   | "monday"
   | "tuesday"
@@ -78,6 +65,7 @@ function weeklyAvailabilityToForm(
 
   (Object.keys(base) as DayKey[]).forEach((day) => {
     const firstRange = weeklyAvailability[day]?.[0];
+
     if (firstRange) {
       base[day] = {
         enabled: true,
@@ -141,14 +129,18 @@ export default function SettingsPage() {
   });
 
   const [form, setForm] = useState<UpdateMyBusinessProfilePayload>({});
-  const [calendarForm, setCalendarForm] = useState<UpdateCalendarSettingsPayload>({
-    publicBookingEnabled: false,
-    timezone: "America/Argentina/Buenos_Aires",
-    slotDurationMinutes: 30,
-    minAdvanceMinutes: 0,
-    maxAdvanceDays: 30,
-  });
-  const [weeklyForm, setWeeklyForm] = useState<WeeklyForm>(buildEmptyWeeklyForm());
+  const [calendarForm, setCalendarForm] =
+    useState<UpdateCalendarSettingsPayload>({
+      publicBookingEnabled: false,
+      timezone: "America/Argentina/Buenos_Aires",
+      slotDurationMinutes: 30,
+      minAdvanceMinutes: 0,
+      maxAdvanceDays: 30,
+    });
+
+  const [weeklyForm, setWeeklyForm] = useState<WeeklyForm>(
+    buildEmptyWeeklyForm()
+  );
 
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -216,7 +208,7 @@ export default function SettingsPage() {
 
   const saveField = (
     field: keyof UpdateMyBusinessProfilePayload,
-    value: unknown,
+    value: unknown
   ) => {
     setSavingField(field);
     mutation.mutate({ [field]: value } as UpdateMyBusinessProfilePayload);
@@ -224,7 +216,7 @@ export default function SettingsPage() {
 
   const saveCalendarField = (
     field: keyof UpdateCalendarSettingsPayload,
-    value: unknown,
+    value: unknown
   ) => {
     setSavingField(`calendar-${String(field)}`);
     calendarMutation.mutate({
@@ -235,6 +227,7 @@ export default function SettingsPage() {
   const saveWeeklyAvailability = () => {
     for (const day of Object.keys(weeklyForm) as DayKey[]) {
       const item = weeklyForm[day];
+
       if (item.enabled && item.start >= item.end) {
         toast.error(`Revisá los horarios de ${dayLabels[day]}`);
         return;
@@ -249,18 +242,28 @@ export default function SettingsPage() {
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+
     if (!file) return;
 
     setSavingField("logoUrl");
 
     try {
       const res = await uploadsService.uploadImage(file);
+
       mutation.mutate({ logoUrl: res.url });
-      setForm((f) => ({ ...f, logoUrl: res.url }));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+      setForm((f) => ({
+        ...f,
+        logoUrl: res.url,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       toast.error(err.message || "Error al subir logo");
       setSavingField(null);
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -312,37 +315,18 @@ export default function SettingsPage() {
           <Input
             value={form.name || ""}
             onChange={(e) =>
-              setForm((f) => ({ ...f, name: e.target.value }))
+              setForm((f) => ({
+                ...f,
+                name: e.target.value,
+              }))
             }
             className="bg-secondary border-border max-w-md"
           />
         </SettingsBlock>
 
         <SettingsBlock
-          title="Business Slug"
-          description="Este slug define el link público de tus turnos. Debe ser único."
-          footerNote='Ejemplo: "lb-codeworks" → /lb-codeworks/turnos'
-          onSave={() => saveField("slug", slugify(form.slug || ""))}
-          saving={savingField === "slug"}
-        >
-          <div className="space-y-2 max-w-md">
-            <Input
-              value={form.slug || ""}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, slug: slugify(e.target.value) }))
-              }
-              className="bg-secondary border-border"
-              placeholder="mi-negocio"
-            />
-            <p className="text-xs text-muted-foreground break-all">
-              Link público: {publicBookingUrl || `${window.location.origin}/mi-negocio/turnos`}
-            </p>
-          </div>
-        </SettingsBlock>
-
-        <SettingsBlock
           title="Business Logo"
-          description="Subí el logo de tu negocio. Se mostrará en el storefront y en el dashboard."
+          description="Subí el logo de tu negocio. Se mostrará en el dashboard."
           footerNote="PNG o JPG, máximo 2MB."
           onSave={() => fileInputRef.current?.click()}
           saving={savingField === "logoUrl"}
@@ -392,7 +376,10 @@ export default function SettingsPage() {
           <Input
             value={form.contactPhone || ""}
             onChange={(e) =>
-              setForm((f) => ({ ...f, contactPhone: e.target.value }))
+              setForm((f) => ({
+                ...f,
+                contactPhone: e.target.value,
+              }))
             }
             className="bg-secondary border-border max-w-md"
           />
@@ -407,7 +394,10 @@ export default function SettingsPage() {
           <Input
             value={form.publicEmail || ""}
             onChange={(e) =>
-              setForm((f) => ({ ...f, publicEmail: e.target.value }))
+              setForm((f) => ({
+                ...f,
+                publicEmail: e.target.value,
+              }))
             }
             className="bg-secondary border-border max-w-md"
           />
@@ -422,7 +412,10 @@ export default function SettingsPage() {
           <Input
             value={form.address || ""}
             onChange={(e) =>
-              setForm((f) => ({ ...f, address: e.target.value }))
+              setForm((f) => ({
+                ...f,
+                address: e.target.value,
+              }))
             }
             className="bg-secondary border-border max-w-md"
           />
@@ -438,54 +431,13 @@ export default function SettingsPage() {
           <Input
             value={form.description || ""}
             onChange={(e) =>
-              setForm((f) => ({ ...f, description: e.target.value }))
+              setForm((f) => ({
+                ...f,
+                description: e.target.value,
+              }))
             }
             className="bg-secondary border-border max-w-md"
           />
-        </SettingsBlock>
-
-        <SettingsBlock
-          title="Primary Color"
-          description="Color principal de tu marca. Se usará en botones, links y acentos."
-          footerNote="Formato hexadecimal."
-          onSave={() => saveField("primaryColor", form.primaryColor)}
-          saving={savingField === "primaryColor"}
-        >
-          <div className="flex items-center gap-3 max-w-md">
-            <div
-              className="h-10 w-10 rounded-md border border-border shrink-0"
-              style={{ backgroundColor: form.primaryColor || "#FFFFFF" }}
-            />
-            <Input
-              value={form.primaryColor || ""}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, primaryColor: e.target.value }))
-              }
-              className="bg-secondary border-border font-mono text-sm"
-            />
-          </div>
-        </SettingsBlock>
-
-        <SettingsBlock
-          title="Secondary Color"
-          description="Color secundario de tu marca para fondos y elementos complementarios."
-          footerNote="Formato hexadecimal."
-          onSave={() => saveField("secondaryColor", form.secondaryColor)}
-          saving={savingField === "secondaryColor"}
-        >
-          <div className="flex items-center gap-3 max-w-md">
-            <div
-              className="h-10 w-10 rounded-md border border-border shrink-0"
-              style={{ backgroundColor: form.secondaryColor || "#1A1A1A" }}
-            />
-            <Input
-              value={form.secondaryColor || ""}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, secondaryColor: e.target.value }))
-              }
-              className="bg-secondary border-border font-mono text-sm"
-            />
-          </div>
         </SettingsBlock>
 
         <SettingsBlock
@@ -515,7 +467,8 @@ export default function SettingsPage() {
           </select>
 
           <p className="text-xs text-muted-foreground mt-2 break-all">
-            Link público: {publicBookingUrl || `${window.location.origin}/mi-negocio/turnos`}
+            Link público:{" "}
+            {publicBookingUrl || `${window.location.origin}/mi-negocio/turnos`}
           </p>
         </SettingsBlock>
 
@@ -523,7 +476,9 @@ export default function SettingsPage() {
           title="Configuración general de agenda"
           description="Definí duración de turnos y anticipación."
           footerNote="Estos valores afectan la disponibilidad pública."
-          onSave={() =>
+          onSave={() => {
+            setSavingField("calendar-general");
+
             calendarMutation.mutate({
               publicBookingEnabled: !!calendarForm.publicBookingEnabled,
               timezone:
@@ -531,12 +486,10 @@ export default function SettingsPage() {
               slotDurationMinutes: Number(
                 calendarForm.slotDurationMinutes ?? 30
               ),
-              minAdvanceMinutes: Number(
-                calendarForm.minAdvanceMinutes ?? 0
-              ),
+              minAdvanceMinutes: Number(calendarForm.minAdvanceMinutes ?? 0),
               maxAdvanceDays: Number(calendarForm.maxAdvanceDays ?? 30),
-            })
-          }
+            });
+          }}
           saving={savingField === "calendar-general"}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
@@ -601,30 +554,6 @@ export default function SettingsPage() {
                 className="bg-secondary border-border"
               />
             </div>
-          </div>
-
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setSavingField("calendar-general");
-                calendarMutation.mutate({
-                  publicBookingEnabled: !!calendarForm.publicBookingEnabled,
-                  timezone:
-                    calendarForm.timezone || "America/Argentina/Buenos_Aires",
-                  slotDurationMinutes: Number(
-                    calendarForm.slotDurationMinutes ?? 30
-                  ),
-                  minAdvanceMinutes: Number(
-                    calendarForm.minAdvanceMinutes ?? 0
-                  ),
-                  maxAdvanceDays: Number(calendarForm.maxAdvanceDays ?? 30),
-                });
-              }}
-              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-            >
-              Guardar configuración general
-            </button>
           </div>
         </SettingsBlock>
 
