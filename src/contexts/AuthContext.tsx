@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 
 type UserRole = "SUPER_ADMIN" | "OWNER" | "ADMIN" | "EDITOR";
@@ -38,6 +39,7 @@ type AuthContextType = {
   refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isAuthReady: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
@@ -69,6 +71,34 @@ function normalizeMeResponse(data: MeResponse): AuthUser {
   return data;
 }
 
+function decodeJwtPayload(token: string): { exp?: number } | null {
+  try {
+    const payload = token.split(".")[1];
+
+    if (!payload) return null;
+
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedBase64 = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      "="
+    );
+
+    return JSON.parse(atob(paddedBase64));
+  } catch {
+    return null;
+  }
+}
+
+function isJwtExpired(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+
+  if (!payload?.exp) return true;
+
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+
+  return payload.exp <= nowInSeconds;
+}
+
 async function parseError(response: Response): Promise<string> {
   try {
     const data = await response.json();
@@ -94,15 +124,12 @@ async function parseError(response: Response): Promise<string> {
   }
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
-  const [accessToken, setAccessToken] = useState<string | null>(
-    () => localStorage.getItem(ACCESS_TOKEN_KEY)
-  );
-  const [refreshToken, setRefreshToken] = useState<string | null>(
-    () => localStorage.getItem(REFRESH_TOKEN_KEY)
-  );
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const isAuthenticated = !!accessToken && !!user;
 
@@ -132,7 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshMe = useCallback(async () => {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY);
 
-    if (!token) {
+    if (!token || isJwtExpired(token)) {
       clearSession();
       return;
     }
@@ -216,7 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const token = localStorage.getItem(ACCESS_TOKEN_KEY);
 
-      if (token) {
+      if (token && !isJwtExpired(token)) {
         await fetch(`${API_URL}/auth/logout`, {
           method: "POST",
           headers: {
@@ -232,15 +259,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession]);
 
   useEffect(() => {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    const storedUser = getStoredUser();
+    let isMounted = true;
 
-    if (!token || !storedUser) return;
+    async function initAuth() {
+      const storedAccessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
+      const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      const storedUser = getStoredUser();
 
-    refreshMe().catch(() => {
-      clearSession();
-    });
-  }, [refreshMe, clearSession]);
+      if (!storedAccessToken || !storedUser || isJwtExpired(storedAccessToken)) {
+        clearSession();
+
+        if (isMounted) {
+          setIsAuthReady(true);
+        }
+
+        return;
+      }
+
+      setUser(storedUser);
+      setAccessToken(storedAccessToken);
+      setRefreshToken(storedRefreshToken);
+
+      try {
+        await refreshMe();
+      } catch {
+        // Si el backend no responde, mantenemos la sesión local si el token no está vencido.
+        // Si el backend responde 401, refreshMe ya borra la sesión.
+      } finally {
+        if (isMounted) {
+          setIsAuthReady(true);
+        }
+      }
+    }
+
+    initAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [clearSession, refreshMe]);
 
   const value = useMemo<AuthContextType>(
     () => ({
@@ -249,6 +306,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshToken,
       isAuthenticated,
       isLoading,
+      isAuthReady,
       login,
       logout,
       refreshMe,
@@ -259,6 +317,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshToken,
       isAuthenticated,
       isLoading,
+      isAuthReady,
       login,
       logout,
       refreshMe,

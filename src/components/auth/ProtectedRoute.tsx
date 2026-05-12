@@ -10,13 +10,16 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isAuthReady, user } = useAuth();
   const location = useLocation();
 
-  if (isLoading) {
+  if (!isAuthReady) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Validando sesión...</p>
+        </div>
       </div>
     );
   }
@@ -44,6 +47,10 @@ interface RoleGateProps {
 
 export function RoleGate({ children, roles, fallback = null }: RoleGateProps) {
   const { user } = useAuth();
-  if (!user || !roles.includes(user.role)) return <>{fallback}</>;
+
+  if (!user || !roles.includes(user.role)) {
+    return <>{fallback}</>;
+  }
+
   return <>{children}</>;
 }
