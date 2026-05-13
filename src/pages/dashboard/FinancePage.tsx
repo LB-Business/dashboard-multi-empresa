@@ -223,8 +223,7 @@ function isSaleMovement(type?: string) {
 
 function isProductExtraExpenseMovement(type?: string) {
   return (
-    type === "product_extra_expense" ||
-    type === "product_extra_expense_created"
+    type === "product_extra_expense" || type === "product_extra_expense_created"
   );
 }
 
@@ -372,17 +371,38 @@ export default function FinancePage() {
     return ids;
   }, [movementList]);
 
-  const accountingMovements = useMemo(() => {
-    return movementList.filter((item) => {
-      if (item.type !== "deposit_received") return true;
+  const refundedProductIds = useMemo(() => {
+    const ids = new Set<string>();
 
-      const productKey = getMovementProductKey(item);
+    movementList.forEach((item) => {
+      if (item.type === "deposit_refunded") {
+        const productKey = getMovementProductKey(item);
 
-      if (!productKey) return true;
-
-      return !soldProductIds.has(productKey);
+        if (productKey) {
+          ids.add(productKey);
+        }
+      }
     });
-  }, [movementList, soldProductIds]);
+
+    return ids;
+  }, [movementList]);
+
+const accountingMovements = useMemo(() => {
+  return movementList.filter((item) => {
+    if (item.type !== "deposit_received") return true;
+
+    const productKey = getMovementProductKey(item);
+
+    if (!productKey) return true;
+
+    const wasSold = soldProductIds.has(productKey);
+    const wasRefunded = refundedProductIds.has(productKey);
+
+    if (wasSold && !wasRefunded) return false;
+
+    return true;
+  });
+}, [movementList, soldProductIds, refundedProductIds]);
 
   const absorbedDeposits = useMemo(() => {
     return movementList.filter((item) => {
@@ -423,12 +443,22 @@ export default function FinancePage() {
   );
 
   const arsActiveDeposits = useMemo(
-    () => calculateActiveDepositsByCurrency(accountingMovements, "ARS", soldProductIds),
+    () =>
+      calculateActiveDepositsByCurrency(
+        accountingMovements,
+        "ARS",
+        soldProductIds,
+      ),
     [accountingMovements, soldProductIds],
   );
 
   const usdActiveDeposits = useMemo(
-    () => calculateActiveDepositsByCurrency(accountingMovements, "USD", soldProductIds),
+    () =>
+      calculateActiveDepositsByCurrency(
+        accountingMovements,
+        "USD",
+        soldProductIds,
+      ),
     [accountingMovements, soldProductIds],
   );
 
