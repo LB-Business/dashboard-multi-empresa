@@ -27,6 +27,13 @@ import {
   type FinanceTotals,
 } from "@/services/finance.service";
 
+type FinanceMovementWithMeta = FinanceMovement & {
+  meta?: Record<string, any>;
+  productId?: string | null;
+  sourceId?: string | null;
+  currency?: CurrencyCode | null;
+};
+
 function formatCurrency(value?: number | null, currency: CurrencyCode = "ARS") {
   const amount = Number(value ?? 0);
 
@@ -45,8 +52,11 @@ function formatCurrency(value?: number | null, currency: CurrencyCode = "ARS") {
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "-";
+
   return date.toLocaleDateString("es-AR");
 }
 
@@ -55,6 +65,7 @@ function getMovementTypeLabel(type?: string) {
     case "expense_manual":
       return "Gasto manual";
     case "product_extra_expense":
+    case "product_extra_expense_created":
       return "Gasto producto";
     case "vehicle_purchase":
       return "Compra";
@@ -63,9 +74,20 @@ function getMovementTypeLabel(type?: string) {
     case "deposit_refunded":
       return "Devolución";
     case "product_sale":
+    case "product_sold":
       return "Venta";
     case "consignment_settlement":
       return "Liquidación";
+    case "product_created":
+      return "Producto creado";
+    case "product_updated":
+      return "Producto actualizado";
+    case "product_deleted":
+      return "Producto eliminado";
+    case "product_status_updated":
+      return "Cambio de estado";
+    case "product_inventory_updated":
+      return "Inventario";
     default:
       return "Movimiento";
   }
@@ -76,15 +98,25 @@ function getMovementIcon(type?: string) {
     case "expense_manual":
       return Receipt;
     case "product_extra_expense":
+    case "product_extra_expense_created":
       return Package;
     case "vehicle_purchase":
       return Car;
     case "deposit_received":
       return HandCoins;
+    case "deposit_refunded":
+      return TrendingDown;
     case "product_sale":
+    case "product_sold":
       return TrendingUp;
     case "consignment_settlement":
       return ArrowRightLeft;
+    case "product_created":
+    case "product_updated":
+    case "product_deleted":
+    case "product_status_updated":
+    case "product_inventory_updated":
+      return Package;
     default:
       return Wallet;
   }
@@ -114,6 +146,7 @@ function getDirectionLabel(direction?: string) {
 
 function getMonthInputValue() {
   const now = new Date();
+
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -131,8 +164,68 @@ function emptyTotals(): FinanceTotals {
   };
 }
 
+function getMeta(item: FinanceMovement) {
+  return (item as FinanceMovementWithMeta).meta ?? {};
+}
+
+function getKeyValue(value: any) {
+  if (value === undefined || value === null || value === "") return "";
+
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  if (typeof value === "object") {
+    if (value.id) return String(value.id);
+    if (value._id) return String(value._id);
+  }
+
+  return "";
+}
+
 function getMovementProductKey(item: FinanceMovement) {
-  return item.productId || item.sourceId || "";
+  const movement = item as FinanceMovementWithMeta;
+  const meta = getMeta(item);
+
+  return (
+    getKeyValue(movement.productId) ||
+    getKeyValue(movement.sourceId) ||
+    getKeyValue(meta.productId) ||
+    getKeyValue(meta.sourceId) ||
+    ""
+  );
+}
+
+function getCurrencyFromValue(value: any): CurrencyCode | null {
+  if (value === "ARS" || value === "USD") {
+    return value;
+  }
+
+  return null;
+}
+
+function getMovementCurrency(item: FinanceMovement): CurrencyCode {
+  const movement = item as FinanceMovementWithMeta;
+  const meta = getMeta(item);
+
+  return (
+    getCurrencyFromValue(movement.currency) ||
+    getCurrencyFromValue(meta.currency) ||
+    getCurrencyFromValue(meta.previousReservation?.depositCurrency) ||
+    getCurrencyFromValue(meta.reservation?.depositCurrency) ||
+    "ARS"
+  );
+}
+
+function isSaleMovement(type?: string) {
+  return type === "product_sale" || type === "product_sold";
+}
+
+function isProductExtraExpenseMovement(type?: string) {
+  return (
+    type === "product_extra_expense" ||
+    type === "product_extra_expense_created"
+  );
 }
 
 function calculateTotalsByCurrency(
@@ -142,25 +235,29 @@ function calculateTotalsByCurrency(
   const totals = emptyTotals();
 
   for (const movement of movements) {
-    if ((movement.currency ?? "ARS") !== currency) continue;
+    if (getMovementCurrency(movement) !== currency) continue;
 
     const amount = Number(movement.amount ?? 0);
 
     if (movement.direction === "in") totals.income += amount;
     if (movement.direction === "out") totals.expenses += amount;
 
+    if (isSaleMovement(movement.type)) {
+      totals.salesIncome += amount;
+      continue;
+    }
+
+    if (isProductExtraExpenseMovement(movement.type)) {
+      totals.productExtraExpenses += amount;
+      continue;
+    }
+
     switch (movement.type) {
-      case "product_sale":
-        totals.salesIncome += amount;
-        break;
       case "deposit_received":
         totals.depositsIncome += amount;
         break;
       case "expense_manual":
         totals.manualExpenses += amount;
-        break;
-      case "product_extra_expense":
-        totals.productExtraExpenses += amount;
         break;
       case "vehicle_purchase":
         totals.vehiclePurchases += amount;
@@ -172,7 +269,62 @@ function calculateTotalsByCurrency(
   }
 
   totals.balance = totals.income - totals.expenses;
+
   return totals;
+}
+
+function calculateRefundsByCurrency(
+  movements: FinanceMovement[],
+  currency: CurrencyCode,
+) {
+  return movements.reduce((acc, movement) => {
+    if (getMovementCurrency(movement) !== currency) return acc;
+    if (movement.type !== "deposit_refunded") return acc;
+
+    return acc + Number(movement.amount ?? 0);
+  }, 0);
+}
+
+function calculateActiveDepositsByCurrency(
+  movements: FinanceMovement[],
+  currency: CurrencyCode,
+  soldProductIds: Set<string>,
+) {
+  const byProduct = new Map<string, number>();
+  let withoutProductKey = 0;
+
+  for (const movement of movements) {
+    if (getMovementCurrency(movement) !== currency) continue;
+
+    const productKey = getMovementProductKey(movement);
+    const amount = Number(movement.amount ?? 0);
+
+    if (movement.type === "deposit_received") {
+      if (productKey && soldProductIds.has(productKey)) continue;
+
+      if (productKey) {
+        byProduct.set(productKey, (byProduct.get(productKey) ?? 0) + amount);
+      } else {
+        withoutProductKey += amount;
+      }
+    }
+
+    if (movement.type === "deposit_refunded") {
+      if (productKey) {
+        byProduct.set(productKey, (byProduct.get(productKey) ?? 0) - amount);
+      } else {
+        withoutProductKey -= amount;
+      }
+    }
+  }
+
+  let total = Math.max(withoutProductKey, 0);
+
+  byProduct.forEach((value) => {
+    total += Math.max(value, 0);
+  });
+
+  return total;
 }
 
 export default function FinancePage() {
@@ -208,16 +360,19 @@ export default function FinancePage() {
     const ids = new Set<string>();
 
     movementList.forEach((item) => {
-      if (item.type === "product_sale") {
+      if (isSaleMovement(item.type)) {
         const productKey = getMovementProductKey(item);
-        if (productKey) ids.add(productKey);
+
+        if (productKey) {
+          ids.add(productKey);
+        }
       }
     });
 
     return ids;
   }, [movementList]);
 
-  const effectiveMovements = useMemo(() => {
+  const accountingMovements = useMemo(() => {
     return movementList.filter((item) => {
       if (item.type !== "deposit_received") return true;
 
@@ -241,14 +396,40 @@ export default function FinancePage() {
     });
   }, [movementList, soldProductIds]);
 
+  const refundMovements = useMemo(() => {
+    return accountingMovements.filter(
+      (item) => item.type === "deposit_refunded",
+    );
+  }, [accountingMovements]);
+
   const arsTotals = useMemo(
-    () => calculateTotalsByCurrency(effectiveMovements, "ARS"),
-    [effectiveMovements],
+    () => calculateTotalsByCurrency(accountingMovements, "ARS"),
+    [accountingMovements],
   );
 
   const usdTotals = useMemo(
-    () => calculateTotalsByCurrency(effectiveMovements, "USD"),
-    [effectiveMovements],
+    () => calculateTotalsByCurrency(accountingMovements, "USD"),
+    [accountingMovements],
+  );
+
+  const arsRefunds = useMemo(
+    () => calculateRefundsByCurrency(accountingMovements, "ARS"),
+    [accountingMovements],
+  );
+
+  const usdRefunds = useMemo(
+    () => calculateRefundsByCurrency(accountingMovements, "USD"),
+    [accountingMovements],
+  );
+
+  const arsActiveDeposits = useMemo(
+    () => calculateActiveDepositsByCurrency(accountingMovements, "ARS", soldProductIds),
+    [accountingMovements, soldProductIds],
+  );
+
+  const usdActiveDeposits = useMemo(
+    () => calculateActiveDepositsByCurrency(accountingMovements, "USD", soldProductIds),
+    [accountingMovements, soldProductIds],
   );
 
   const arsStats = summary?.productStatsByCurrency?.ARS ?? {
@@ -267,9 +448,11 @@ export default function FinancePage() {
     usdTotals.balance !== 0 ||
     usdTotals.salesIncome !== 0 ||
     usdTotals.vehiclePurchases !== 0 ||
+    usdActiveDeposits !== 0 ||
+    usdRefunds !== 0 ||
     usdStats.estimatedProfit !== 0 ||
     usdStats.realProfit !== 0 ||
-    effectiveMovements.some((item) => item.currency === "USD");
+    accountingMovements.some((item) => getMovementCurrency(item) === "USD");
 
   const publishedCount = Number(summary?.productStats?.publishedCount ?? 0);
   const soldCount = Number(summary?.productStats?.soldCount ?? 0);
@@ -277,18 +460,18 @@ export default function FinancePage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
 
-    if (!q) return effectiveMovements;
+    if (!q) return accountingMovements;
 
-    return effectiveMovements.filter((item: FinanceMovement) => {
+    return accountingMovements.filter((item: FinanceMovement) => {
       return (
         (item.title ?? "").toLowerCase().includes(q) ||
         (item.description ?? "").toLowerCase().includes(q) ||
         (item.productName ?? "").toLowerCase().includes(q) ||
         (item.type ?? "").toLowerCase().includes(q) ||
-        (item.currency ?? "").toLowerCase().includes(q)
+        getMovementCurrency(item).toLowerCase().includes(q)
       );
     });
-  }, [effectiveMovements, search]);
+  }, [accountingMovements, search]);
 
   return (
     <div>
@@ -327,7 +510,16 @@ export default function FinancePage() {
                 {absorbedDeposits.length === 1 ? "" : "s"} absorbida
                 {absorbedDeposits.length === 1 ? "" : "s"} por ventas finales.
                 No se suman como ingreso separado porque la venta ya representa
-                el total del vehículo.
+                el total del producto.
+              </div>
+            )}
+
+            {refundMovements.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                Hay {refundMovements.length} devolución
+                {refundMovements.length === 1 ? "" : "es"} de seña registrada
+                {refundMovements.length === 1 ? "" : "s"}. Se muestran como
+                egresos para compensar la seña recibida.
               </div>
             )}
 
@@ -337,24 +529,89 @@ export default function FinancePage() {
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatsCard title="Balance ARS" value={formatCurrency(arsTotals.balance, "ARS")} icon={Wallet} />
-                <StatsCard title="Ingresos ARS" value={formatCurrency(arsTotals.income, "ARS")} icon={TrendingUp} />
-                <StatsCard title="Egresos ARS" value={formatCurrency(arsTotals.expenses, "ARS")} icon={TrendingDown} />
-                <StatsCard title="Ventas ARS" value={formatCurrency(arsTotals.salesIncome, "ARS")} icon={Package} />
+                <StatsCard
+                  title="Balance ARS"
+                  value={formatCurrency(arsTotals.balance, "ARS")}
+                  icon={Wallet}
+                />
+
+                <StatsCard
+                  title="Ingresos ARS"
+                  value={formatCurrency(arsTotals.income, "ARS")}
+                  icon={TrendingUp}
+                />
+
+                <StatsCard
+                  title="Egresos ARS"
+                  value={formatCurrency(arsTotals.expenses, "ARS")}
+                  icon={TrendingDown}
+                />
+
+                <StatsCard
+                  title="Ventas ARS"
+                  value={formatCurrency(arsTotals.salesIncome, "ARS")}
+                  icon={Package}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatsCard title="Señas ARS" value={formatCurrency(arsTotals.depositsIncome, "ARS")} icon={HandCoins} />
-                <StatsCard title="Gastos manuales ARS" value={formatCurrency(arsTotals.manualExpenses, "ARS")} icon={Receipt} />
-                <StatsCard title="Gastos productos ARS" value={formatCurrency(arsTotals.productExtraExpenses, "ARS")} icon={Package} />
-                <StatsCard title="Compras vehículos ARS" value={formatCurrency(arsTotals.vehiclePurchases, "ARS")} icon={Car} />
+                <StatsCard
+                  title="Señas activas ARS"
+                  value={formatCurrency(arsActiveDeposits, "ARS")}
+                  icon={HandCoins}
+                />
+
+                <StatsCard
+                  title="Devoluciones ARS"
+                  value={formatCurrency(arsRefunds, "ARS")}
+                  icon={TrendingDown}
+                />
+
+                <StatsCard
+                  title="Gastos manuales ARS"
+                  value={formatCurrency(arsTotals.manualExpenses, "ARS")}
+                  icon={Receipt}
+                />
+
+                <StatsCard
+                  title="Gastos productos ARS"
+                  value={formatCurrency(arsTotals.productExtraExpenses, "ARS")}
+                  icon={Package}
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatsCard title="Ganancia estimada ARS" value={formatCurrency(arsStats.estimatedProfit, "ARS")} icon={TrendingUp} />
-                <StatsCard title="Ganancia real ARS" value={formatCurrency(arsStats.realProfit, "ARS")} icon={Wallet} />
-                <StatsCard title="Publicados" value={publishedCount} icon={Package} />
-                <StatsCard title="Vendidos" value={soldCount} icon={TrendingUp} />
+                <StatsCard
+                  title="Compras vehículos ARS"
+                  value={formatCurrency(arsTotals.vehiclePurchases, "ARS")}
+                  icon={Car}
+                />
+
+                <StatsCard
+                  title="Ganancia estimada ARS"
+                  value={formatCurrency(arsStats.estimatedProfit, "ARS")}
+                  icon={TrendingUp}
+                />
+
+                <StatsCard
+                  title="Ganancia real ARS"
+                  value={formatCurrency(arsStats.realProfit, "ARS")}
+                  icon={Wallet}
+                />
+
+                <StatsCard
+                  title="Publicados"
+                  value={publishedCount}
+                  icon={Package}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <StatsCard
+                  title="Vendidos"
+                  value={soldCount}
+                  icon={TrendingUp}
+                />
               </div>
             </div>
 
@@ -365,17 +622,72 @@ export default function FinancePage() {
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <StatsCard title="Balance USD" value={formatCurrency(usdTotals.balance, "USD")} icon={Wallet} />
-                  <StatsCard title="Ingresos USD" value={formatCurrency(usdTotals.income, "USD")} icon={TrendingUp} />
-                  <StatsCard title="Egresos USD" value={formatCurrency(usdTotals.expenses, "USD")} icon={TrendingDown} />
-                  <StatsCard title="Ventas USD" value={formatCurrency(usdTotals.salesIncome, "USD")} icon={Package} />
+                  <StatsCard
+                    title="Balance USD"
+                    value={formatCurrency(usdTotals.balance, "USD")}
+                    icon={Wallet}
+                  />
+
+                  <StatsCard
+                    title="Ingresos USD"
+                    value={formatCurrency(usdTotals.income, "USD")}
+                    icon={TrendingUp}
+                  />
+
+                  <StatsCard
+                    title="Egresos USD"
+                    value={formatCurrency(usdTotals.expenses, "USD")}
+                    icon={TrendingDown}
+                  />
+
+                  <StatsCard
+                    title="Ventas USD"
+                    value={formatCurrency(usdTotals.salesIncome, "USD")}
+                    icon={Package}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <StatsCard title="Señas USD" value={formatCurrency(usdTotals.depositsIncome, "USD")} icon={HandCoins} />
-                  <StatsCard title="Compras vehículos USD" value={formatCurrency(usdTotals.vehiclePurchases, "USD")} icon={Car} />
-                  <StatsCard title="Liquidaciones USD" value={formatCurrency(usdTotals.consignmentSettlements, "USD")} icon={ArrowRightLeft} />
-                  <StatsCard title="Ganancia real USD" value={formatCurrency(usdStats.realProfit, "USD")} icon={TrendingUp} />
+                  <StatsCard
+                    title="Señas activas USD"
+                    value={formatCurrency(usdActiveDeposits, "USD")}
+                    icon={HandCoins}
+                  />
+
+                  <StatsCard
+                    title="Devoluciones USD"
+                    value={formatCurrency(usdRefunds, "USD")}
+                    icon={TrendingDown}
+                  />
+
+                  <StatsCard
+                    title="Compras vehículos USD"
+                    value={formatCurrency(usdTotals.vehiclePurchases, "USD")}
+                    icon={Car}
+                  />
+
+                  <StatsCard
+                    title="Liquidaciones USD"
+                    value={formatCurrency(
+                      usdTotals.consignmentSettlements,
+                      "USD",
+                    )}
+                    icon={ArrowRightLeft}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <StatsCard
+                    title="Ganancia estimada USD"
+                    value={formatCurrency(usdStats.estimatedProfit, "USD")}
+                    icon={TrendingUp}
+                  />
+
+                  <StatsCard
+                    title="Ganancia real USD"
+                    value={formatCurrency(usdStats.realProfit, "USD")}
+                    icon={Wallet}
+                  />
                 </div>
               </div>
             )}
@@ -383,6 +695,7 @@ export default function FinancePage() {
             <div className="flex items-center gap-3">
               <div className="relative flex-1 max-w-sm">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+
                 <Input
                   placeholder="Buscar movimientos..."
                   value={search}
@@ -406,18 +719,23 @@ export default function FinancePage() {
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Movimiento
                       </th>
+
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
                         Tipo
                       </th>
+
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Monto
                       </th>
+
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
                         Moneda
                       </th>
+
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
                         Fecha
                       </th>
+
                       <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Dirección
                       </th>
@@ -427,6 +745,7 @@ export default function FinancePage() {
                   <tbody className="divide-y divide-border">
                     {filtered.map((item) => {
                       const Icon = getMovementIcon(item.type);
+                      const currency = getMovementCurrency(item);
 
                       return (
                         <tr
@@ -461,13 +780,13 @@ export default function FinancePage() {
 
                           <td className="px-4 py-3 text-foreground font-mono text-xs">
                             {item.amount != null
-                              ? formatCurrency(item.amount, item.currency)
+                              ? formatCurrency(item.amount, currency)
                               : "-"}
                           </td>
 
                           <td className="px-4 py-3 hidden sm:table-cell">
                             <Badge variant="outline" className="text-[10px]">
-                              {item.currency}
+                              {currency}
                             </Badge>
                           </td>
 

@@ -311,6 +311,8 @@ export default function ProductsPage() {
     }) => productsService.updateStatus(id, payload),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-movements"] });
 
       if (
         variables.payload.status === "published" &&
@@ -349,7 +351,11 @@ export default function ProductsPage() {
     mutationFn: (id: string) => productsService.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["finance-movements"] });
+
       toast.success("Producto eliminado correctamente");
+
       if (selectedProduct) {
         setSelectedProduct(null);
       }
@@ -498,6 +504,7 @@ export default function ProductsPage() {
     );
 
     const hasVariants = (product.variants?.length ?? 0) > 0;
+
     if (hasVariants) {
       const firstAvailableIndex = product.variants?.findIndex(
         (variant) => Number(variant.stock ?? 0) > 0,
@@ -518,6 +525,7 @@ export default function ProductsPage() {
 
   const handleReserveSubmit = () => {
     const productId = selectedProduct?.id ?? selectedProduct?._id;
+
     if (!productId) {
       toast.error("No se encontró el producto");
       return;
@@ -547,6 +555,7 @@ export default function ProductsPage() {
 
   const handleSellSubmit = () => {
     const productId = selectedProduct?.id ?? selectedProduct?._id;
+
     if (!productId || !selectedProduct) {
       toast.error("No se encontró el producto");
       return;
@@ -592,19 +601,9 @@ export default function ProductsPage() {
           isPublished: false,
           soldAt: toIsoFromDateInput(soldDate),
           finalSalePrice: Number(soldPrice),
-          clearReservation: true,
-          reservation: {
-            depositAmount: 0,
-            depositCurrency:
-              selectedProduct.reservation?.depositCurrency ??
-              selectedProduct.currency,
-            depositDate: undefined,
-            customerName:
-              selectedProduct.reservation?.customerName ?? undefined,
-            customerPhone:
-              selectedProduct.reservation?.customerPhone ?? undefined,
-            notes: selectedProduct.reservation?.notes ?? undefined,
-          },
+          clearReservation: hasActiveDeposit(selectedProduct),
+          variantIndex,
+          quantity,
         },
       });
 
@@ -618,12 +617,14 @@ export default function ProductsPage() {
         isPublished: false,
         soldAt: toIsoFromDateInput(soldDate),
         finalSalePrice: Number(soldPrice),
+        clearReservation: hasActiveDeposit(selectedProduct),
       },
     });
   };
 
   const handleBackToPublished = (product: Product) => {
     const productId = product.id ?? product._id;
+
     if (!productId) {
       toast.error("No se encontró el producto");
       return;
@@ -640,10 +641,28 @@ export default function ProductsPage() {
 
   const handleReturnDepositAndPublish = (product: Product) => {
     const productId = product.id ?? product._id;
+
     if (!productId) {
       toast.error("No se encontró el producto");
       return;
     }
+
+    const currentDepositAmount = Number(product.reservation?.depositAmount ?? 0);
+    const currentDepositCurrency =
+      product.reservation?.depositCurrency ?? product.currency ?? "ARS";
+
+    if (currentDepositAmount <= 0) {
+      toast.error("Este producto no tiene una seña activa para devolver");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `¿Confirmás devolver la seña de ${currentDepositCurrency} ${currentDepositAmount.toLocaleString(
+        "es-AR",
+      )} y volver a publicar "${product.name}"?`,
+    );
+
+    if (!confirmed) return;
 
     statusMutation.mutate({
       id: productId,
@@ -657,6 +676,7 @@ export default function ProductsPage() {
 
   const handleDeleteProduct = (product: Product) => {
     const productId = product.id ?? product._id;
+
     if (!productId) {
       toast.error("No se encontró el producto");
       return;
@@ -1007,6 +1027,7 @@ export default function ProductsPage() {
                                   <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
                                     Información general
                                   </p>
+
                                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                                     <div className="rounded-md border border-border p-3">
                                       <p className="text-xs text-muted-foreground">
@@ -1082,90 +1103,83 @@ export default function ProductsPage() {
                                     <div className="rounded-md border border-border p-3">
                                       <div className="space-y-3">
                                         {product.documents?.map(
-                                          (document, index) => {
-                                            const documentName =
-                                              document.fileName ||
-                                              document.label ||
-                                              "documento";
-
-                                            return (
-                                              <div
-                                                key={`${document.publicId}-${index}`}
-                                                className="flex flex-col gap-3 rounded-md border border-border/70 bg-background/40 p-3 md:flex-row md:items-center md:justify-between"
-                                              >
-                                                <div className="min-w-0 flex items-start gap-3">
-                                                  <div className="rounded-md bg-secondary p-2">
-                                                    <FileText className="h-4 w-4 text-muted-foreground" />
-                                                  </div>
-
-                                                  <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-foreground truncate">
-                                                      {document.label ||
-                                                        document.fileName ||
-                                                        "Documento"}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      {getDocumentTypeLabel(
-                                                        document.type,
-                                                      )}
-                                                      {document.fileName
-                                                        ? ` • ${document.fileName}`
-                                                        : ""}
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground">
-                                                      Subido:{" "}
-                                                      {formatDate(
-                                                        document.uploadedAt,
-                                                      )}
-                                                    </p>
-                                                  </div>
+                                          (document, index) => (
+                                            <div
+                                              key={`${document.publicId}-${index}`}
+                                              className="flex flex-col gap-3 rounded-md border border-border/70 bg-background/40 p-3 md:flex-row md:items-center md:justify-between"
+                                            >
+                                              <div className="min-w-0 flex items-start gap-3">
+                                                <div className="rounded-md bg-secondary p-2">
+                                                  <FileText className="h-4 w-4 text-muted-foreground" />
                                                 </div>
 
-                                                <div className="flex shrink-0 gap-2">
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    asChild
-                                                  >
-                                                    <a
-                                                      href={getDocumentViewUrl(
-                                                        document.url,
-                                                      )}
-                                                      target="_blank"
-                                                      rel="noreferrer"
-                                                    >
-                                                      <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-                                                      Ver
-                                                    </a>
-                                                  </Button>
-
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    asChild
-                                                  >
-                                                    <a
-                                                      href={getDocumentDownloadUrl(
-                                                        document.url,
-                                                      )}
-                                                      download={
-                                                        document.fileName ||
-                                                        document.label ||
-                                                        "documento"
-                                                      }
-                                                      target="_blank"
-                                                      rel="noreferrer"
-                                                    >
-                                                      <Download className="mr-1.5 h-3.5 w-3.5" />
-                                                      Descargar
-                                                    </a>
-                                                  </Button>
+                                                <div className="min-w-0">
+                                                  <p className="text-sm font-medium text-foreground truncate">
+                                                    {document.label ||
+                                                      document.fileName ||
+                                                      "Documento"}
+                                                  </p>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    {getDocumentTypeLabel(
+                                                      document.type,
+                                                    )}
+                                                    {document.fileName
+                                                      ? ` • ${document.fileName}`
+                                                      : ""}
+                                                  </p>
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Subido:{" "}
+                                                    {formatDate(
+                                                      document.uploadedAt,
+                                                    )}
+                                                  </p>
                                                 </div>
                                               </div>
-                                            );
-                                          },
+
+                                              <div className="flex shrink-0 gap-2">
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  asChild
+                                                >
+                                                  <a
+                                                    href={getDocumentViewUrl(
+                                                      document.url,
+                                                    )}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                  >
+                                                    <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                                                    Ver
+                                                  </a>
+                                                </Button>
+
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  asChild
+                                                >
+                                                  <a
+                                                    href={getDocumentDownloadUrl(
+                                                      document.url,
+                                                    )}
+                                                    download={
+                                                      document.fileName ||
+                                                      document.label ||
+                                                      "documento"
+                                                    }
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                  >
+                                                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                                                    Descargar
+                                                  </a>
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ),
                                         )}
                                       </div>
                                     </div>
@@ -1722,10 +1736,11 @@ export default function ProductsPage() {
                 )}
               </>
             )}
+
             {hasActiveDeposit(selectedProduct) && (
               <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-2 text-sm">
                 <p className="font-medium text-foreground">
-                  Este auto tiene una seña cargada
+                  Este producto tiene una seña cargada
                 </p>
 
                 <div className="grid grid-cols-1 gap-2">
