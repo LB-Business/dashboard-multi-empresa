@@ -5,10 +5,13 @@ import { Input } from "@/components/ui/input";
 import {
   Building2,
   Edit,
+  ExternalLink,
   Eye,
   EyeOff,
+  Loader2,
   Plus,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -20,6 +23,7 @@ import {
   PropertyOperationType,
   PropertyStatus,
   PropertyType,
+  PublishPropertyMercadoLibrePayload,
 } from "@/services/properties.service";
 import { toast } from "sonner";
 
@@ -75,14 +79,140 @@ function formatMoney(value?: number | null, currency?: string | null) {
 function getLocation(property: Property) {
   const address = property.address ?? {};
 
-  return [
-    address.neighborhood,
-    address.city,
-    address.state,
-  ]
+  return [address.neighborhood, address.city, address.state]
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function getMercadoLibreCategoryId(property: Property) {
+  if (property.propertyType === "casa" && property.operationType === "venta") {
+    return "MLA401685";
+  }
+
+  if (property.propertyType === "casa" && property.operationType === "alquiler") {
+    return "MLA1467";
+  }
+
+  if (
+    property.propertyType === "casa" &&
+    property.operationType === "alquiler_temporario"
+  ) {
+    return "MLA50278";
+  }
+
+  return "";
+}
+
+function getMercadoLibreStatusLabel(status?: string | null) {
+  if (!status) return "Sin publicar";
+  if (status === "active") return "Activa";
+  if (status === "paused") return "Pausada";
+  if (status === "payment_required") return "Requiere pago";
+  if (status === "under_review") return "En revisión";
+  if (status === "closed") return "Finalizada";
+  return status;
+}
+
+function getMercadoLibreStatusClass(status?: string | null) {
+  if (status === "active") {
+    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-500";
+  }
+
+  if (status === "payment_required") {
+    return "border-yellow-500/20 bg-yellow-500/10 text-yellow-600";
+  }
+
+  if (status === "paused") {
+    return "border-orange-500/20 bg-orange-500/10 text-orange-500";
+  }
+
+  return "border-border bg-secondary text-muted-foreground";
+}
+
+function buildMercadoLibreLocation(property: Property) {
+  const address = property.address ?? {};
+
+  const street = String(address.street || "").trim();
+  const number = String(address.number || "").trim();
+  const neighborhood = String(address.neighborhood || "").trim();
+  const city = String(address.city || "").trim();
+  const state = String(address.state || "Buenos Aires").trim();
+  const country = String(address.country || "Argentina").trim();
+
+  return {
+    address_line:
+      [street, number, neighborhood, city, state, country]
+        .filter(Boolean)
+        .join(", ") || "Dirección a consultar",
+    neighborhood: {
+      id: "",
+      name: neighborhood,
+    },
+    city: {
+      id: "",
+      name: city,
+    },
+    state: {
+      id: "",
+      name: state,
+    },
+    country: {
+      id: "AR",
+      name: country,
+    },
+    latitude: address.latitude,
+    longitude: address.longitude,
+  };
+}
+
+function validateMercadoLibreProperty(property: Property) {
+  const categoryId = getMercadoLibreCategoryId(property);
+
+  if (!categoryId) {
+    throw new Error(
+      "Todavía no está mapeada esta combinación de tipo/operación para Mercado Libre.",
+    );
+  }
+
+  if (property.ml?.itemId) {
+    throw new Error("Esta propiedad ya tiene una publicación en Mercado Libre.");
+  }
+
+  if (!property.images?.length) {
+    throw new Error("La propiedad necesita al menos una imagen.");
+  }
+
+  if (!property.price || property.price <= 0) {
+    throw new Error("La propiedad necesita un precio mayor a cero.");
+  }
+
+  if (!property.features?.totalArea || property.features.totalArea <= 0) {
+    throw new Error("Cargá los metros totales.");
+  }
+
+  if (!property.features?.coveredArea || property.features.coveredArea <= 0) {
+    throw new Error("Cargá los metros cubiertos.");
+  }
+
+  if (!property.features?.bedrooms || property.features.bedrooms <= 0) {
+    throw new Error("Cargá los dormitorios.");
+  }
+
+  if (!property.features?.bathrooms || property.features.bathrooms <= 0) {
+    throw new Error("Cargá los baños.");
+  }
+
+  if (
+    property.address?.latitude === undefined ||
+    property.address?.latitude === null ||
+    property.address?.longitude === undefined ||
+    property.address?.longitude === null
+  ) {
+    throw new Error("Cargá latitud y longitud de la propiedad.");
+  }
+
+  return categoryId;
 }
 
 export default function PropertiesListPage() {
@@ -94,6 +224,7 @@ export default function PropertiesListPage() {
   const [operationType, setOperationType] = useState("");
   const [propertyType, setPropertyType] = useState("");
   const [showOnLanding, setShowOnLanding] = useState("");
+  const [publishingId, setPublishingId] = useState<string | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -112,19 +243,56 @@ export default function PropertiesListPage() {
   });
 
   const toggleLandingMutation = useMutation({
-    mutationFn: ({
-      id,
-      value,
-    }: {
-      id: string;
-      value: boolean;
-    }) => propertiesService.updateShowOnLanding(id, value),
+    mutationFn: ({ id, value }: { id: string; value: boolean }) =>
+      propertiesService.updateShowOnLanding(id, value),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["properties"] });
       toast.success("Visibilidad en landing actualizada");
     },
     onError: (err: any) => {
       toast.error(err?.message || "No se pudo actualizar la landing");
+    },
+  });
+
+  const publishMercadoLibreMutation = useMutation({
+    mutationFn: (property: Property) => {
+      const id = getPropertyId(property);
+
+      if (!id) {
+        throw new Error("No se pudo resolver el ID de la propiedad.");
+      }
+
+      const categoryId = validateMercadoLibreProperty(property);
+
+      const payload: PublishPropertyMercadoLibrePayload = {
+        categoryId,
+        listingTypeId: "silver",
+        condition: "used",
+        currencyId: property.currency ?? "ARS",
+        testMode: false,
+        location: buildMercadoLibreLocation(property),
+      };
+
+      setPublishingId(id);
+      return propertiesService.publishToMercadoLibre(id, payload);
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+
+      if (res.needsPayment) {
+        toast.warning(
+          "Mercado Libre creó la publicación, pero requiere pago para activarse.",
+        );
+        return;
+      }
+
+      toast.success("Propiedad publicada en Mercado Libre");
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "No se pudo publicar en Mercado Libre");
+    },
+    onSettled: () => {
+      setPublishingId(null);
     },
   });
 
@@ -275,6 +443,9 @@ export default function PropertiesListPage() {
               const id = getPropertyId(property);
               const cover = getCoverImage(property);
               const location = getLocation(property);
+              const isPublishingThis = publishingId === id;
+              const hasMercadoLibreItem = !!property.ml?.itemId;
+              const mlStatus = property.ml?.status;
 
               return (
                 <div
@@ -318,9 +489,21 @@ export default function PropertiesListPage() {
                           ) : null}
                         </div>
 
-                        <span className="rounded-full border border-border bg-secondary px-2 py-1 text-[11px] text-muted-foreground shrink-0">
-                          {statusLabels[property.status] || property.status}
-                        </span>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          <span className="rounded-full border border-border bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
+                            {statusLabels[property.status] || property.status}
+                          </span>
+
+                          {hasMercadoLibreItem ? (
+                            <span
+                              className={`rounded-full border px-2 py-1 text-[11px] ${getMercadoLibreStatusClass(
+                                mlStatus,
+                              )}`}
+                            >
+                              ML: {getMercadoLibreStatusLabel(mlStatus)}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -330,8 +513,7 @@ export default function PropertiesListPage() {
 
                         {property.expenses ? (
                           <span className="text-xs text-muted-foreground">
-                            Expensas:{" "}
-                            {formatMoney(property.expenses, property.currency)}
+                            Expensas: {formatMoney(property.expenses, property.currency)}
                           </span>
                         ) : null}
                       </div>
@@ -362,31 +544,103 @@ export default function PropertiesListPage() {
                         ) : null}
                       </div>
 
+                      {hasMercadoLibreItem ? (
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                              Mercado Libre:{" "}
+                              <span className="text-foreground">
+                                {property.ml?.itemId}
+                              </span>
+                            </span>
+
+                            {property.ml?.permalink ? (
+                              <Button type="button" variant="outline" size="sm" asChild>
+                                <a
+                                  href={property.ml.permalink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  <ExternalLink className="h-4 w-4 mr-1.5" />
+                                  Ver ML
+                                </a>
+                              </Button>
+                            ) : null}
+                          </div>
+
+                          {property.ml?.errorMessage ? (
+                            <p className="text-yellow-600">
+                              {property.ml.errorMessage}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                        <Button
-                          type="button"
-                          variant={property.showOnLanding ? "default" : "outline"}
-                          size="sm"
-                          onClick={() =>
-                            toggleLandingMutation.mutate({
-                              id,
-                              value: !property.showOnLanding,
-                            })
-                          }
-                          disabled={toggleLandingMutation.isPending}
-                        >
-                          {property.showOnLanding ? (
-                            <>
-                              <Eye className="h-4 w-4 mr-1.5" />
-                              En landing
-                            </>
-                          ) : (
-                            <>
-                              <EyeOff className="h-4 w-4 mr-1.5" />
-                              Oculta
-                            </>
-                          )}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant={property.showOnLanding ? "default" : "outline"}
+                            size="sm"
+                            onClick={() =>
+                              toggleLandingMutation.mutate({
+                                id,
+                                value: !property.showOnLanding,
+                              })
+                            }
+                            disabled={toggleLandingMutation.isPending}
+                          >
+                            {property.showOnLanding ? (
+                              <>
+                                <Eye className="h-4 w-4 mr-1.5" />
+                                En landing
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="h-4 w-4 mr-1.5" />
+                                Oculta
+                              </>
+                            )}
+                          </Button>
+
+                          {!hasMercadoLibreItem ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                publishMercadoLibreMutation.mutate(property)
+                              }
+                              disabled={
+                                publishMercadoLibreMutation.isPending ||
+                                isPublishingThis
+                              }
+                            >
+                              {isPublishingThis ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                                  Publicando...
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="h-4 w-4 mr-1.5" />
+                                  Publicar en ML
+                                </>
+                              )}
+                            </Button>
+                          ) : property.ml?.permalink ? (
+                            <Button type="button" variant="outline" size="sm" asChild>
+                              <a
+                                href={property.ml.permalink}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <ExternalLink className="h-4 w-4 mr-1.5" />
+                                Ver publicación
+                              </a>
+                            </Button>
+                          ) : null}
+                        </div>
 
                         <div className="flex gap-2">
                           <Button
@@ -412,15 +666,6 @@ export default function PropertiesListPage() {
                           </Button>
                         </div>
                       </div>
-
-                      {property.ml?.itemId ? (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-                          Mercado Libre:{" "}
-                          <span className="text-foreground">
-                            {property.ml.itemId}
-                          </span>
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 </div>

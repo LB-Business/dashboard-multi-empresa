@@ -198,6 +198,34 @@ export interface PropertiesFilters {
   search?: string;
 }
 
+export interface PublishPropertyMercadoLibrePayload {
+  categoryId: string;
+  listingTypeId?: "silver" | "gold" | "gold_premium";
+  buyingMode?: "buy_it_now" | "classified" | "auction";
+  title?: string;
+  price?: number;
+  currencyId?: "ARS" | "USD";
+  condition?: "new" | "used";
+  testMode?: boolean;
+  force?: boolean;
+  location?: any;
+  attributes?: any[];
+}
+
+export interface PublishPropertyMercadoLibreResponse {
+  ok: boolean;
+  needsPayment?: boolean;
+  property?: Property;
+  mercadoLibre?: {
+    id?: string;
+    status?: string;
+    permalink?: string;
+    categoryId?: string;
+    listingTypeId?: string;
+  };
+  sentPayload?: any;
+}
+
 function buildQuery(filters?: PropertiesFilters) {
   const params = new URLSearchParams();
 
@@ -216,8 +244,7 @@ export const propertiesService = {
   getAll: (filters?: PropertiesFilters) =>
     api.get<Property[]>(`/properties${buildQuery(filters)}`),
 
-  getById: (id: string) =>
-    api.get<Property>(`/properties/${id}`),
+  getById: (id: string) => api.get<Property>(`/properties/${id}`),
 
   create: (payload: CreatePropertyPayload) =>
     api.post<Property>("/properties", payload),
@@ -233,6 +260,14 @@ export const propertiesService = {
       showOnLanding,
     }),
 
-  delete: (id: string) =>
-    api.delete<{ ok: boolean }>(`/properties/${id}`),
+  publishToMercadoLibre: (
+    id: string,
+    payload: PublishPropertyMercadoLibrePayload,
+  ) =>
+    api.post<PublishPropertyMercadoLibreResponse>(
+      `/properties/${id}/mercadolibre/publish`,
+      payload,
+    ),
+
+  delete: (id: string) => api.delete<{ ok: boolean }>(`/properties/${id}`),
 };

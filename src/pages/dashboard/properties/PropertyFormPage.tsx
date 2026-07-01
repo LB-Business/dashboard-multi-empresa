@@ -29,6 +29,7 @@ import {
   PropertyStatus,
   PropertyOperationType,
   PropertyType,
+  PublishPropertyMercadoLibrePayload,
 } from "@/services/properties.service";
 import { uploadsService } from "@/services/uploads.service";
 import { toast } from "sonner";
@@ -229,6 +230,135 @@ function createInitialForm(): CreatePropertyPayload {
     documents: [],
     internalNotes: "",
   };
+}
+
+function getDefaultMercadoLibreCategoryId(
+  propertyType?: PropertyType,
+  operationType?: PropertyOperationType,
+) {
+  if (propertyType === "casa" && operationType === "venta") {
+    return "MLA401685";
+  }
+
+  if (propertyType === "casa" && operationType === "alquiler") {
+    return "MLA1467";
+  }
+
+  if (propertyType === "casa" && operationType === "alquiler_temporario") {
+    return "MLA50278";
+  }
+
+  return "";
+}
+
+function getMercadoLibreStatusLabel(status?: string | null) {
+  if (!status) return "Sin publicar";
+  if (status === "active") return "Activa";
+  if (status === "paused") return "Pausada";
+  if (status === "payment_required") return "Requiere pago";
+  if (status === "under_review") return "En revisión";
+  if (status === "closed") return "Finalizada";
+  return status;
+}
+
+function getMercadoLibreStatusClass(status?: string | null) {
+  if (status === "active") {
+    return "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
+  }
+
+  if (status === "payment_required") {
+    return "bg-yellow-500/10 text-yellow-600 border-yellow-500/20";
+  }
+
+  if (status === "paused") {
+    return "bg-orange-500/10 text-orange-500 border-orange-500/20";
+  }
+
+  return "bg-secondary text-muted-foreground border-border";
+}
+
+function buildMercadoLibreLocation(form: CreatePropertyPayload) {
+  const address = form.address ?? {};
+
+  const street = address.street?.trim() || "";
+  const number = address.number?.trim() || "";
+  const neighborhood = address.neighborhood?.trim() || "";
+  const city = address.city?.trim() || "";
+  const state = address.state?.trim() || "Buenos Aires";
+  const country = address.country?.trim() || "Argentina";
+
+  return {
+    address_line:
+      [street, number, neighborhood, city, state, country]
+        .filter(Boolean)
+        .join(", ") || "Dirección a consultar",
+    neighborhood: {
+      id: "",
+      name: neighborhood,
+    },
+    city: {
+      id: "",
+      name: city,
+    },
+    state: {
+      id: "",
+      name: state,
+    },
+    country: {
+      id: "AR",
+      name: country,
+    },
+    latitude: address.latitude,
+    longitude: address.longitude,
+  };
+}
+
+function validateMercadoLibrePayload(form: CreatePropertyPayload) {
+  const categoryId = getDefaultMercadoLibreCategoryId(
+    form.propertyType,
+    form.operationType,
+  );
+
+  if (!categoryId) {
+    throw new Error(
+      "Todavía no tenemos mapeada esta combinación de tipo/operación para Mercado Libre.",
+    );
+  }
+
+  if (!form.images?.length) {
+    throw new Error("La propiedad necesita al menos una imagen.");
+  }
+
+  if (!form.price || form.price <= 0) {
+    throw new Error("La propiedad necesita un precio mayor a cero.");
+  }
+
+  if (!form.features?.totalArea || form.features.totalArea <= 0) {
+    throw new Error("Cargá los metros totales.");
+  }
+
+  if (!form.features?.coveredArea || form.features.coveredArea <= 0) {
+    throw new Error("Cargá los metros cubiertos.");
+  }
+
+  if (!form.features?.bedrooms || form.features.bedrooms <= 0) {
+    throw new Error("Cargá los dormitorios.");
+  }
+
+  if (!form.features?.bathrooms || form.features.bathrooms <= 0) {
+    throw new Error("Cargá los baños.");
+  }
+
+  if (
+    form.address?.latitude === undefined ||
+    form.address?.latitude === null ||
+    form.address?.longitude === undefined ||
+    form.address?.longitude === null
+  ) {
+    throw new Error("Cargá latitud y longitud de la propiedad.");
+  }
+
+  return categoryId;
 }
 
 export default function PropertyFormPage() {
@@ -468,6 +598,50 @@ export default function PropertyFormPage() {
     setForm((prev) => ({ ...prev, expenses: parsed }));
     setExpensesInput(formatMoney(parsed));
   };
+
+
+  const publishMercadoLibreMutation = useMutation({
+    mutationFn: () => {
+      if (!isEditing || !id) {
+        throw new Error("Primero guardá la propiedad antes de publicarla.");
+      }
+
+      if (existing?.ml?.itemId) {
+        throw new Error("Esta propiedad ya tiene una publicación en Mercado Libre.");
+      }
+
+      const categoryId = validateMercadoLibrePayload(form);
+
+      const payload: PublishPropertyMercadoLibrePayload = {
+        categoryId,
+        listingTypeId: "silver",
+        condition: "used",
+        currencyId: form.currency ?? "ARS",
+        testMode: false,
+        location: buildMercadoLibreLocation(form),
+      };
+
+      return propertiesService.publishToMercadoLibre(id, payload);
+    },
+
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["properties"] });
+      queryClient.invalidateQueries({ queryKey: ["property", id] });
+
+      if (res.needsPayment) {
+        toast.warning(
+          "Mercado Libre creó la publicación, pero requiere pago para activarse.",
+        );
+        return;
+      }
+
+      toast.success("Propiedad publicada en Mercado Libre");
+    },
+
+    onError: (err: any) => {
+      toast.error(err?.message || "No se pudo publicar en Mercado Libre");
+    },
+  });
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -1567,15 +1741,134 @@ export default function PropertyFormPage() {
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">
-            Mercado Libre
-          </h2>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Mercado Libre
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Publicá esta propiedad en Mercado Libre y controlá el estado de
+                la publicación.
+              </p>
+            </div>
 
-          <div className="rounded-md border border-border bg-secondary/40 px-3 py-3 text-sm text-muted-foreground">
-            Esta propiedad todavía no está conectada a Mercado Libre. Después
-            vamos a agregar desde acá los botones para publicar, pausar,
-            sincronizar y ver preguntas de esta propiedad.
+            {existing?.ml?.status ? (
+              <span
+                className={`inline-flex w-fit items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getMercadoLibreStatusClass(
+                  existing.ml.status,
+                )}`}
+              >
+                {getMercadoLibreStatusLabel(existing.ml.status)}
+              </span>
+            ) : null}
           </div>
+
+          {!isEditing ? (
+            <div className="rounded-md border border-border bg-secondary/40 px-3 py-3 text-sm text-muted-foreground">
+              Primero guardá la propiedad. Después vas a poder publicarla en
+              Mercado Libre.
+            </div>
+          ) : existing?.ml?.itemId ? (
+            <div className="rounded-md border border-border bg-secondary/40 p-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Item ML</p>
+                  <p className="font-medium text-foreground">
+                    {existing.ml.itemId}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">Paquete</p>
+                  <p className="font-medium text-foreground">
+                    {existing.ml.listingTypeId || "Sin dato"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">Categoría</p>
+                  <p className="font-medium text-foreground">
+                    {existing.ml.categoryId || "Sin dato"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">Estado</p>
+                  <p className="font-medium text-foreground">
+                    {getMercadoLibreStatusLabel(existing.ml.status)}
+                  </p>
+                </div>
+              </div>
+
+              {existing.ml.errorMessage ? (
+                <div className="rounded-md border border-yellow-500/20 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-700">
+                  {existing.ml.errorMessage}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                {existing.ml.permalink ? (
+                  <Button type="button" variant="outline" size="sm" asChild>
+                    <a
+                      href={existing.ml.permalink}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-1.5" />
+                      Ver publicación
+                    </a>
+                  </Button>
+                ) : null}
+
+                {existing.ml.status === "payment_required" &&
+                existing.ml.permalink ? (
+                  <Button type="button" size="sm" asChild>
+                    <a
+                      href={existing.ml.permalink}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Pagar / activar en Mercado Libre
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-border bg-secondary/40 p-4 space-y-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  Lista para publicar
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Para casas en venta se usará la categoría{" "}
+                  <span className="font-medium text-foreground">
+                    MLA401685
+                  </span>{" "}
+                  y el paquete inicial{" "}
+                  <span className="font-medium text-foreground">silver</span>.
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => publishMercadoLibreMutation.mutate()}
+                disabled={
+                  publishMercadoLibreMutation.isPending || mutation.isPending
+                }
+              >
+                {publishMercadoLibreMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                    Publicando...
+                  </>
+                ) : (
+                  "Publicar en Mercado Libre"
+                )}
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-6 space-y-4">
