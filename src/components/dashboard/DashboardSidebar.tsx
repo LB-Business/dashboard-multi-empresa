@@ -15,35 +15,128 @@ import {
   Wallet,
   ArrowLeftRight,
   UserCircle,
+  Home,
+  MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/types/auth";
 import { LucideIcon } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { businessesService } from "@/services/businesses.service";
 
 interface NavItem {
   title: string;
   icon: LucideIcon;
   path: string;
   roles: UserRole[];
+  exact?: boolean;
+  showForBusinessTypes?: string[];
+  hideForBusinessTypes?: string[];
 }
 
 const navItems: NavItem[] = [
-  { title: "Platform Overview", icon: Globe, path: "/dashboard", roles: ["SUPER_ADMIN"] },
-  { title: "Businesses", icon: Building2, path: "/dashboard/businesses", roles: ["SUPER_ADMIN"] },
-  { title: "All Users", icon: Users, path: "/dashboard/all-users", roles: ["SUPER_ADMIN"] },
-  { title: "Create Owner", icon: UserPlus, path: "/dashboard/create-owner", roles: ["SUPER_ADMIN"] },
-  { title: "Global Settings", icon: Shield, path: "/dashboard/global-settings", roles: ["SUPER_ADMIN"] },
+  {
+    title: "Platform Overview",
+    icon: Globe,
+    path: "/dashboard",
+    roles: ["SUPER_ADMIN"],
+    exact: true,
+  },
+  {
+    title: "Businesses",
+    icon: Building2,
+    path: "/dashboard/businesses",
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    title: "All Users",
+    icon: Users,
+    path: "/dashboard/all-users",
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    title: "Create Owner",
+    icon: UserPlus,
+    path: "/dashboard/create-owner",
+    roles: ["SUPER_ADMIN"],
+  },
+  {
+    title: "Global Settings",
+    icon: Shield,
+    path: "/dashboard/global-settings",
+    roles: ["SUPER_ADMIN"],
+  },
 
-  { title: "Overview", icon: LayoutDashboard, path: "/dashboard", roles: ["OWNER", "ADMIN", "EDITOR"] },
-  { title: "Products", icon: Package, path: "/dashboard/products", roles: ["OWNER", "ADMIN", "EDITOR"] },
-  { title: "Expenses", icon: Receipt, path: "/dashboard/expenses", roles: ["OWNER", "ADMIN"] },
-  { title: "Finance", icon: Wallet, path: "/dashboard/finance", roles: ["OWNER", "ADMIN"] },
-  { title: "Movements", icon: ArrowLeftRight, path: "/dashboard/movements", roles: ["OWNER", "ADMIN", "EDITOR"] },
-  { title: "Calendar", icon: CalendarDays, path: "/dashboard/calendar", roles: ["OWNER", "ADMIN", "EDITOR"] },
-  { title: "Users", icon: Users, path: "/dashboard/users", roles: ["OWNER"] },
-  { title: "Settings", icon: Settings, path: "/dashboard/settings", roles: ["OWNER"] },
+  {
+    title: "Overview",
+    icon: LayoutDashboard,
+    path: "/dashboard",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+    exact: true,
+  },
+
+  {
+    title: "Products",
+    icon: Package,
+    path: "/dashboard/products",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+    hideForBusinessTypes: ["inmobiliaria"],
+  },
+
+  {
+    title: "Propiedades",
+    icon: Home,
+    path: "/dashboard/properties",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+    showForBusinessTypes: ["inmobiliaria"],
+  },
+
+  {
+    title: "Preguntas ML",
+    icon: MessageCircle,
+    path: "/dashboard/mercadolibre/questions",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+    showForBusinessTypes: ["inmobiliaria", "concesionaria"],
+  },
+
+  {
+    title: "Expenses",
+    icon: Receipt,
+    path: "/dashboard/expenses",
+    roles: ["OWNER", "ADMIN"],
+  },
+  {
+    title: "Finance",
+    icon: Wallet,
+    path: "/dashboard/finance",
+    roles: ["OWNER", "ADMIN"],
+  },
+  {
+    title: "Movements",
+    icon: ArrowLeftRight,
+    path: "/dashboard/movements",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+  },
+  {
+    title: "Calendar",
+    icon: CalendarDays,
+    path: "/dashboard/calendar",
+    roles: ["OWNER", "ADMIN", "EDITOR"],
+  },
+  {
+    title: "Users",
+    icon: Users,
+    path: "/dashboard/users",
+    roles: ["OWNER"],
+  },
+  {
+    title: "Settings",
+    icon: Settings,
+    path: "/dashboard/settings",
+    roles: ["OWNER"],
+  },
 ];
 
 export function DashboardSidebar() {
@@ -55,16 +148,46 @@ export function DashboardSidebar() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const role = user?.role;
-  const visibleItems = navItems.filter(
-    (item) => role && item.roles.includes(role),
-  );
+
+  const { data: business } = useQuery({
+  queryKey: ["my-business"],
+  queryFn: businessesService.getMyBusiness,
+  enabled: !!user && role !== "SUPER_ADMIN",
+});
+
+const businessType =
+  business?.businessType ||
+  (user as any)?.businessType ||
+  (user as any)?.business?.businessType ||
+  "";
+
+  
+  const visibleItems = navItems.filter((item) => {
+    if (!role || !item.roles.includes(role)) return false;
+
+    if (
+      item.showForBusinessTypes &&
+      !item.showForBusinessTypes.includes(businessType)
+    ) {
+      return false;
+    }
+
+    if (
+      item.hideForBusinessTypes &&
+      item.hideForBusinessTypes.includes(businessType)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
 
   const businessLogoUrl =
     (user as any)?.businessLogoUrl || (user as any)?.logoUrl || "";
 
-  const isActive = (path: string) => {
-    if (path === "/dashboard") return location.pathname === "/dashboard";
-    return location.pathname.startsWith(path);
+  const isActive = (item: NavItem) => {
+    if (item.exact) return location.pathname === item.path;
+    return location.pathname.startsWith(item.path);
   };
 
   const handleLogout = () => {
@@ -138,6 +261,7 @@ export function DashboardSidebar() {
         <div className="px-4 py-2 border-b border-border">
           <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
             {role.replace("_", " ")}
+            {businessType ? ` · ${businessType.replace("_", " ")}` : ""}
           </span>
         </div>
       )}
@@ -150,7 +274,7 @@ export function DashboardSidebar() {
             className={cn(
               "flex w-full items-center rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
               collapsed && "justify-center px-0",
-              isActive(item.path)
+              isActive(item)
                 ? "bg-accent text-foreground"
                 : "text-sidebar-foreground hover:bg-accent hover:text-foreground",
             )}

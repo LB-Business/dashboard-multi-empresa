@@ -22,6 +22,10 @@ import CalendarPage from "./pages/dashboard/Calendar";
 import UsersPage from "./pages/dashboard/Users";
 import SettingsPage from "./pages/dashboard/Settings";
 
+import PropertiesListPage from "./pages/dashboard/properties/PropertiesListPage";
+import PropertyFormPage from "./pages/dashboard/properties/PropertyFormPage";
+import MercadoLibreQuestionsPage from "./pages/dashboard/mercadolibre/MercadoLibreQuestionsPage";
+
 import PlatformOverview from "./pages/dashboard/super/PlatformOverview";
 import BusinessesPage from "./pages/dashboard/super/Businesses";
 import CreateBusinessPage from "./pages/dashboard/super/CreateBusiness";
@@ -133,6 +137,49 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+
+              <Route
+                path="properties"
+                element={
+                  <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "EDITOR"]}>
+                    <PropertiesListPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="properties/new"
+                element={
+                  <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "EDITOR"]}>
+                    <PropertyFormPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="properties/:id"
+                element={
+                  <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "EDITOR"]}>
+                    <PropertyFormPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="properties/:id/edit"
+                element={
+                  <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "EDITOR"]}>
+                    <PropertyFormPage />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="mercadolibre/questions"
+                element={
+                  <ProtectedRoute allowedRoles={["OWNER", "ADMIN", "EDITOR"]}>
+                    <MercadoLibreQuestionsPage />
+                  </ProtectedRoute>
+                }
+              />
+
               <Route
                 path="expenses"
                 element={

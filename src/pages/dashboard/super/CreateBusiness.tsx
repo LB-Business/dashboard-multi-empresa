@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 const businessTypeOptions = [
   { value: "concesionaria", label: "Concesionaria" },
+  { value: "inmobiliaria", label: "Inmobiliaria" },
   { value: "barberia", label: "Barbería" },
   { value: "tienda_ropa", label: "Tienda de ropa" },
   { value: "tienda_comida", label: "Tienda de comida" },
