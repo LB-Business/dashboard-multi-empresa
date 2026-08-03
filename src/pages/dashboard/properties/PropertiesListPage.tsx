@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Loader2,
   Plus,
   Search,
   Send,
@@ -23,9 +22,9 @@ import {
   PropertyOperationType,
   PropertyStatus,
   PropertyType,
-  PublishPropertyMercadoLibrePayload,
 } from "@/services/properties.service";
 import { toast } from "sonner";
+import { MercadoLibrePublishModal } from "./components/MercadoLibrePublishModal";
 
 const statusLabels: Record<PropertyStatus, string> = {
   draft: "Borrador",
@@ -85,25 +84,6 @@ function getLocation(property: Property) {
     .join(", ");
 }
 
-function getMercadoLibreCategoryId(property: Property) {
-  if (property.propertyType === "casa" && property.operationType === "venta") {
-    return "MLA401685";
-  }
-
-  if (property.propertyType === "casa" && property.operationType === "alquiler") {
-    return "MLA1467";
-  }
-
-  if (
-    property.propertyType === "casa" &&
-    property.operationType === "alquiler_temporario"
-  ) {
-    return "MLA50278";
-  }
-
-  return "";
-}
-
 function getMercadoLibreStatusLabel(status?: string | null) {
   if (!status) return "Sin publicar";
   if (status === "active") return "Activa";
@@ -130,91 +110,6 @@ function getMercadoLibreStatusClass(status?: string | null) {
   return "border-border bg-secondary text-muted-foreground";
 }
 
-function buildMercadoLibreLocation(property: Property) {
-  const address = property.address ?? {};
-
-  const street = String(address.street || "").trim();
-  const number = String(address.number || "").trim();
-  const neighborhood = String(address.neighborhood || "").trim();
-  const city = String(address.city || "").trim();
-  const state = String(address.state || "Buenos Aires").trim();
-  const country = String(address.country || "Argentina").trim();
-
-  return {
-    address_line:
-      [street, number, neighborhood, city, state, country]
-        .filter(Boolean)
-        .join(", ") || "Dirección a consultar",
-    neighborhood: {
-      id: "",
-      name: neighborhood,
-    },
-    city: {
-      id: "",
-      name: city,
-    },
-    state: {
-      id: "",
-      name: state,
-    },
-    country: {
-      id: "AR",
-      name: country,
-    },
-    latitude: address.latitude,
-    longitude: address.longitude,
-  };
-}
-
-function validateMercadoLibreProperty(property: Property) {
-  const categoryId = getMercadoLibreCategoryId(property);
-
-  if (!categoryId) {
-    throw new Error(
-      "Todavía no está mapeada esta combinación de tipo/operación para Mercado Libre.",
-    );
-  }
-
-  if (property.ml?.itemId) {
-    throw new Error("Esta propiedad ya tiene una publicación en Mercado Libre.");
-  }
-
-  if (!property.images?.length) {
-    throw new Error("La propiedad necesita al menos una imagen.");
-  }
-
-  if (!property.price || property.price <= 0) {
-    throw new Error("La propiedad necesita un precio mayor a cero.");
-  }
-
-  if (!property.features?.totalArea || property.features.totalArea <= 0) {
-    throw new Error("Cargá los metros totales.");
-  }
-
-  if (!property.features?.coveredArea || property.features.coveredArea <= 0) {
-    throw new Error("Cargá los metros cubiertos.");
-  }
-
-  if (!property.features?.bedrooms || property.features.bedrooms <= 0) {
-    throw new Error("Cargá los dormitorios.");
-  }
-
-  if (!property.features?.bathrooms || property.features.bathrooms <= 0) {
-    throw new Error("Cargá los baños.");
-  }
-
-  if (
-    property.address?.latitude === undefined ||
-    property.address?.latitude === null ||
-    property.address?.longitude === undefined ||
-    property.address?.longitude === null
-  ) {
-    throw new Error("Cargá latitud y longitud de la propiedad.");
-  }
-
-  return categoryId;
-}
-
 export default function PropertiesListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -224,7 +119,7 @@ export default function PropertiesListPage() {
   const [operationType, setOperationType] = useState("");
   const [propertyType, setPropertyType] = useState("");
   const [showOnLanding, setShowOnLanding] = useState("");
-  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [propertyToPublish, setPropertyToPublish] = useState<Property | null>(null);
 
   const filters = useMemo(
     () => ({
@@ -251,48 +146,6 @@ export default function PropertiesListPage() {
     },
     onError: (err: any) => {
       toast.error(err?.message || "No se pudo actualizar la landing");
-    },
-  });
-
-  const publishMercadoLibreMutation = useMutation({
-    mutationFn: (property: Property) => {
-      const id = getPropertyId(property);
-
-      if (!id) {
-        throw new Error("No se pudo resolver el ID de la propiedad.");
-      }
-
-      const categoryId = validateMercadoLibreProperty(property);
-
-      const payload: PublishPropertyMercadoLibrePayload = {
-        categoryId,
-        listingTypeId: "silver",
-        condition: "used",
-        currencyId: property.currency ?? "ARS",
-        testMode: false,
-        location: buildMercadoLibreLocation(property),
-      };
-
-      setPublishingId(id);
-      return propertiesService.publishToMercadoLibre(id, payload);
-    },
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["properties"] });
-
-      if (res.needsPayment) {
-        toast.warning(
-          "Mercado Libre creó la publicación, pero requiere pago para activarse.",
-        );
-        return;
-      }
-
-      toast.success("Propiedad publicada en Mercado Libre");
-    },
-    onError: (err: any) => {
-      toast.error(err?.message || "No se pudo publicar en Mercado Libre");
-    },
-    onSettled: () => {
-      setPublishingId(null);
     },
   });
 
@@ -443,7 +296,6 @@ export default function PropertiesListPage() {
               const id = getPropertyId(property);
               const cover = getCoverImage(property);
               const location = getLocation(property);
-              const isPublishingThis = publishingId === id;
               const hasMercadoLibreItem = !!property.ml?.itemId;
               const mlStatus = property.ml?.status;
 
@@ -608,25 +460,10 @@ export default function PropertiesListPage() {
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() =>
-                                publishMercadoLibreMutation.mutate(property)
-                              }
-                              disabled={
-                                publishMercadoLibreMutation.isPending ||
-                                isPublishingThis
-                              }
+                              onClick={() => setPropertyToPublish(property)}
                             >
-                              {isPublishingThis ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                                  Publicando...
-                                </>
-                              ) : (
-                                <>
-                                  <Send className="h-4 w-4 mr-1.5" />
-                                  Publicar en ML
-                                </>
-                              )}
+                              <Send className="h-4 w-4 mr-1.5" />
+                              Publicar en ML
                             </Button>
                           ) : property.ml?.permalink ? (
                             <Button type="button" variant="outline" size="sm" asChild>
@@ -674,6 +511,17 @@ export default function PropertiesListPage() {
           </div>
         )}
       </div>
+
+      <MercadoLibrePublishModal
+        open={!!propertyToPublish}
+        property={propertyToPublish}
+        onOpenChange={(open) => {
+          if (!open) setPropertyToPublish(null);
+        }}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["properties"] });
+        }}
+      />
     </div>
   );
 }

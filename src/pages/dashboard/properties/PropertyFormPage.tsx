@@ -29,10 +29,11 @@ import {
   PropertyStatus,
   PropertyOperationType,
   PropertyType,
-  PublishPropertyMercadoLibrePayload,
+  Property,
 } from "@/services/properties.service";
 import { uploadsService } from "@/services/uploads.service";
 import { toast } from "sonner";
+import { MercadoLibrePublishModal } from "./components/MercadoLibrePublishModal";
 
 type PropertyImageForm = {
   url: string;
@@ -232,25 +233,6 @@ function createInitialForm(): CreatePropertyPayload {
   };
 }
 
-function getDefaultMercadoLibreCategoryId(
-  propertyType?: PropertyType,
-  operationType?: PropertyOperationType,
-) {
-  if (propertyType === "casa" && operationType === "venta") {
-    return "MLA401685";
-  }
-
-  if (propertyType === "casa" && operationType === "alquiler") {
-    return "MLA1467";
-  }
-
-  if (propertyType === "casa" && operationType === "alquiler_temporario") {
-    return "MLA50278";
-  }
-
-  return "";
-}
-
 function getMercadoLibreStatusLabel(status?: string | null) {
   if (!status) return "Sin publicar";
   if (status === "active") return "Activa";
@@ -275,90 +257,6 @@ function getMercadoLibreStatusClass(status?: string | null) {
   }
 
   return "bg-secondary text-muted-foreground border-border";
-}
-
-function buildMercadoLibreLocation(form: CreatePropertyPayload) {
-  const address = form.address ?? {};
-
-  const street = address.street?.trim() || "";
-  const number = address.number?.trim() || "";
-  const neighborhood = address.neighborhood?.trim() || "";
-  const city = address.city?.trim() || "";
-  const state = address.state?.trim() || "Buenos Aires";
-  const country = address.country?.trim() || "Argentina";
-
-  return {
-    address_line:
-      [street, number, neighborhood, city, state, country]
-        .filter(Boolean)
-        .join(", ") || "Dirección a consultar",
-    neighborhood: {
-      id: "",
-      name: neighborhood,
-    },
-    city: {
-      id: "",
-      name: city,
-    },
-    state: {
-      id: "",
-      name: state,
-    },
-    country: {
-      id: "AR",
-      name: country,
-    },
-    latitude: address.latitude,
-    longitude: address.longitude,
-  };
-}
-
-function validateMercadoLibrePayload(form: CreatePropertyPayload) {
-  const categoryId = getDefaultMercadoLibreCategoryId(
-    form.propertyType,
-    form.operationType,
-  );
-
-  if (!categoryId) {
-    throw new Error(
-      "Todavía no tenemos mapeada esta combinación de tipo/operación para Mercado Libre.",
-    );
-  }
-
-  if (!form.images?.length) {
-    throw new Error("La propiedad necesita al menos una imagen.");
-  }
-
-  if (!form.price || form.price <= 0) {
-    throw new Error("La propiedad necesita un precio mayor a cero.");
-  }
-
-  if (!form.features?.totalArea || form.features.totalArea <= 0) {
-    throw new Error("Cargá los metros totales.");
-  }
-
-  if (!form.features?.coveredArea || form.features.coveredArea <= 0) {
-    throw new Error("Cargá los metros cubiertos.");
-  }
-
-  if (!form.features?.bedrooms || form.features.bedrooms <= 0) {
-    throw new Error("Cargá los dormitorios.");
-  }
-
-  if (!form.features?.bathrooms || form.features.bathrooms <= 0) {
-    throw new Error("Cargá los baños.");
-  }
-
-  if (
-    form.address?.latitude === undefined ||
-    form.address?.latitude === null ||
-    form.address?.longitude === undefined ||
-    form.address?.longitude === null
-  ) {
-    throw new Error("Cargá latitud y longitud de la propiedad.");
-  }
-
-  return categoryId;
 }
 
 export default function PropertyFormPage() {
@@ -387,6 +285,7 @@ export default function PropertyFormPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [priceInput, setPriceInput] = useState("");
   const [expensesInput, setExpensesInput] = useState("");
+  const [isMercadoLibreModalOpen, setIsMercadoLibreModalOpen] = useState(false);
 
   const { data: existing, isLoading } = useQuery({
     queryKey: ["property", id],
@@ -599,49 +498,6 @@ export default function PropertyFormPage() {
     setExpensesInput(formatMoney(parsed));
   };
 
-
-  const publishMercadoLibreMutation = useMutation({
-    mutationFn: () => {
-      if (!isEditing || !id) {
-        throw new Error("Primero guardá la propiedad antes de publicarla.");
-      }
-
-      if (existing?.ml?.itemId) {
-        throw new Error("Esta propiedad ya tiene una publicación en Mercado Libre.");
-      }
-
-      const categoryId = validateMercadoLibrePayload(form);
-
-      const payload: PublishPropertyMercadoLibrePayload = {
-        categoryId,
-        listingTypeId: "silver",
-        condition: "used",
-        currencyId: form.currency ?? "ARS",
-        testMode: false,
-        location: buildMercadoLibreLocation(form),
-      };
-
-      return propertiesService.publishToMercadoLibre(id, payload);
-    },
-
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["properties"] });
-      queryClient.invalidateQueries({ queryKey: ["property", id] });
-
-      if (res.needsPayment) {
-        toast.warning(
-          "Mercado Libre creó la publicación, pero requiere pago para activarse.",
-        );
-        return;
-      }
-
-      toast.success("Propiedad publicada en Mercado Libre");
-    },
-
-    onError: (err: any) => {
-      toast.error(err?.message || "No se pudo publicar en Mercado Libre");
-    },
-  });
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -993,6 +849,30 @@ export default function PropertyFormPage() {
       };
     });
   };
+
+  const mercadoLibreModalProperty: Property | null = existing
+    ? ({
+        ...existing,
+        title: form.title || existing.title,
+        slug: form.slug || existing.slug,
+        description: form.description ?? existing.description,
+        operationType: form.operationType ?? existing.operationType,
+        propertyType: form.propertyType ?? existing.propertyType,
+        status: form.status ?? existing.status,
+        showOnLanding: !!form.showOnLanding,
+        price: Number(form.price ?? existing.price ?? 0),
+        currency: form.currency ?? existing.currency,
+        expenses: Number(form.expenses ?? existing.expenses ?? 0),
+        acceptsFinancing: !!form.acceptsFinancing,
+        acceptsExchange: !!form.acceptsExchange,
+        address: form.address ?? existing.address,
+        features: form.features ?? existing.features,
+        images: (form.images as any) ?? existing.images,
+        documents: (form.documents as any) ?? existing.documents,
+        internalNotes: form.internalNotes ?? existing.internalNotes,
+        ml: existing.ml,
+      } as Property)
+    : null;
 
   if (isEditing && isLoading) return <LoadingState />;
 
@@ -1838,34 +1718,22 @@ export default function PropertyFormPage() {
             <div className="rounded-md border border-border bg-secondary/40 p-4 space-y-4">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">
-                  Lista para publicar
+                  Configurar publicación
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Para casas en venta se usará la categoría{" "}
-                  <span className="font-medium text-foreground">
-                    MLA401685
-                  </span>{" "}
-                  y el paquete inicial{" "}
-                  <span className="font-medium text-foreground">silver</span>.
+                  Abrí el asistente para elegir tipo de inmueble, operación,
+                  categoría, paquete de publicación y completar los datos
+                  obligatorios para Mercado Libre.
                 </p>
               </div>
 
               <Button
                 type="button"
                 size="sm"
-                onClick={() => publishMercadoLibreMutation.mutate()}
-                disabled={
-                  publishMercadoLibreMutation.isPending || mutation.isPending
-                }
+                onClick={() => setIsMercadoLibreModalOpen(true)}
+                disabled={mutation.isPending}
               >
-                {publishMercadoLibreMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                    Publicando...
-                  </>
-                ) : (
-                  "Publicar en Mercado Libre"
-                )}
+                Publicar en Mercado Libre
               </Button>
             </div>
           )}
@@ -1889,6 +1757,16 @@ export default function PropertyFormPage() {
           />
         </div>
       </div>
+
+      <MercadoLibrePublishModal
+        open={isMercadoLibreModalOpen}
+        property={mercadoLibreModalProperty}
+        onOpenChange={setIsMercadoLibreModalOpen}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ["properties"] });
+          queryClient.invalidateQueries({ queryKey: ["property", id] });
+        }}
+      />
     </div>
   );
 }
