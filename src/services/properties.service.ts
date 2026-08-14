@@ -15,6 +15,7 @@ export type PropertyType =
   | "campo"
   | "duplex"
   | "ph"
+  | "construccion"
   | "otro";
 
 export type PropertyStatus =

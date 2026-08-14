@@ -52,6 +52,7 @@ const propertyTypeLabels: Record<PropertyType, string> = {
   duplex: "Dúplex",
   ph: "PH",
   otro: "Otro",
+  construccion: "Construcción",
 };
 
 function getPropertyId(property: Property) {
@@ -251,6 +252,7 @@ export default function PropertiesListPage() {
               <option value="campo">Campo</option>
               <option value="duplex">Dúplex</option>
               <option value="ph">PH</option>
+              <option value="construccion">Construcción</option>
               <option value="otro">Otro</option>
             </select>
 
