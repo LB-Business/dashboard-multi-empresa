@@ -16,6 +16,7 @@ import {
 import { uploadsService } from "@/services/uploads.service";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { MercadoLibreSettings } from "./MercadoLibreSettings";
 
 type DayKey =
   | "monday"
@@ -305,6 +306,8 @@ export default function SettingsPage() {
       />
 
       <div className="p-6 max-w-4xl space-y-6">
+        <MercadoLibreSettings />
+
         <SettingsBlock
           title="Business Name"
           description="Este es el nombre visible de tu negocio. Por ejemplo, el nombre de tu empresa o tienda."

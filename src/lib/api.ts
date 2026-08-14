@@ -73,7 +73,13 @@ class ApiClient {
           return {} as T;
         }
 
-        return retryRes.json();
+        const retryText = await retryRes.text();
+
+        if (!retryText) {
+          return null as T;
+        }
+
+        return JSON.parse(retryText) as T;
       }
 
       this.clearAuth();
@@ -90,7 +96,13 @@ class ApiClient {
       return {} as T;
     }
 
-    return res.json();
+    const responseText = await res.text();
+
+    if (!responseText) {
+      return null as T;
+    }
+
+    return JSON.parse(responseText) as T;
   }
 
   private async tryRefresh(): Promise<boolean> {
