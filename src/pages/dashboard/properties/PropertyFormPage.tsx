@@ -852,26 +852,26 @@ export default function PropertyFormPage() {
 
   const mercadoLibreModalProperty: Property | null = existing
     ? ({
-        ...existing,
-        title: form.title || existing.title,
-        slug: form.slug || existing.slug,
-        description: form.description ?? existing.description,
-        operationType: form.operationType ?? existing.operationType,
-        propertyType: form.propertyType ?? existing.propertyType,
-        status: form.status ?? existing.status,
-        showOnLanding: !!form.showOnLanding,
-        price: Number(form.price ?? existing.price ?? 0),
-        currency: form.currency ?? existing.currency,
-        expenses: Number(form.expenses ?? existing.expenses ?? 0),
-        acceptsFinancing: !!form.acceptsFinancing,
-        acceptsExchange: !!form.acceptsExchange,
-        address: form.address ?? existing.address,
-        features: form.features ?? existing.features,
-        images: (form.images as any) ?? existing.images,
-        documents: (form.documents as any) ?? existing.documents,
-        internalNotes: form.internalNotes ?? existing.internalNotes,
-        ml: existing.ml,
-      } as Property)
+      ...existing,
+      title: form.title || existing.title,
+      slug: form.slug || existing.slug,
+      description: form.description ?? existing.description,
+      operationType: form.operationType ?? existing.operationType,
+      propertyType: form.propertyType ?? existing.propertyType,
+      status: form.status ?? existing.status,
+      showOnLanding: !!form.showOnLanding,
+      price: Number(form.price ?? existing.price ?? 0),
+      currency: form.currency ?? existing.currency,
+      expenses: Number(form.expenses ?? existing.expenses ?? 0),
+      acceptsFinancing: !!form.acceptsFinancing,
+      acceptsExchange: !!form.acceptsExchange,
+      address: form.address ?? existing.address,
+      features: form.features ?? existing.features,
+      images: (form.images as any) ?? existing.images,
+      documents: (form.documents as any) ?? existing.documents,
+      internalNotes: form.internalNotes ?? existing.internalNotes,
+      ml: existing.ml,
+    } as Property)
     : null;
 
   if (isEditing && isLoading) return <LoadingState />;
@@ -1014,6 +1014,7 @@ export default function PropertyFormPage() {
                 <option value="campo">Campo</option>
                 <option value="duplex">Dúplex</option>
                 <option value="ph">PH</option>
+                <option value="construccion">Construcción</option>
                 <option value="otro">Otro</option>
               </select>
             </div>
@@ -1431,11 +1432,10 @@ export default function PropertyFormPage() {
                       setDragIndex(null);
                     }}
                     onDragEnd={() => setDragIndex(null)}
-                    className={`relative group rounded-lg overflow-hidden aspect-square border transition ${
-                      dragIndex === i
+                    className={`relative group rounded-lg overflow-hidden aspect-square border transition ${dragIndex === i
                         ? "border-primary opacity-60"
                         : "border-border"
-                    }`}
+                      }`}
                   >
                     <img
                       src={img.url}
@@ -1701,7 +1701,7 @@ export default function PropertyFormPage() {
                 ) : null}
 
                 {existing.ml.status === "payment_required" &&
-                existing.ml.permalink ? (
+                  existing.ml.permalink ? (
                   <Button type="button" size="sm" asChild>
                     <a
                       href={existing.ml.permalink}
