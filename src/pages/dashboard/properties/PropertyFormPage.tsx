@@ -34,6 +34,7 @@ import {
 import { uploadsService } from "@/services/uploads.service";
 import { toast } from "sonner";
 import { MercadoLibrePublishModal } from "./components/MercadoLibrePublishModal";
+import { PropertyLocationMapPicker } from "./components/PropertyLocationMapPicker";
 
 type PropertyImageForm = {
   url: string;
@@ -99,6 +100,14 @@ function parseNumberInput(raw: string): number | undefined {
 
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseCoordinateInput(raw: string, min: number, max: number): number | undefined {
+  if (!raw.trim()) return undefined;
+  const parsed = Number(raw.trim().replace(",", "."));
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max
+    ? parsed
+    : undefined;
 }
 
 function normalizeImages(images: PropertyImageForm[]) {
@@ -1201,7 +1210,7 @@ export default function PropertyFormPage() {
                 placeholder="-34.856..."
                 value={form.address?.latitude ?? ""}
                 onChange={(e) =>
-                  updateAddress("latitude", parseNumberInput(e.target.value))
+                  updateAddress("latitude", parseCoordinateInput(e.target.value, -90, 90))
                 }
                 className="bg-secondary border-border"
               />
@@ -1215,12 +1224,29 @@ export default function PropertyFormPage() {
                 placeholder="-58.506..."
                 value={form.address?.longitude ?? ""}
                 onChange={(e) =>
-                  updateAddress("longitude", parseNumberInput(e.target.value))
+                  updateAddress("longitude", parseCoordinateInput(e.target.value, -180, 180))
                 }
                 className="bg-secondary border-border"
               />
             </div>
           </div>
+
+          <PropertyLocationMapPicker
+            street={form.address?.street}
+            number={form.address?.number}
+            neighborhood={form.address?.neighborhood}
+            city={form.address?.city}
+            state={form.address?.state}
+            country={form.address?.country}
+            latitude={form.address?.latitude == null ? "" : String(form.address.latitude)}
+            longitude={form.address?.longitude == null ? "" : String(form.address.longitude)}
+            onLatitudeChange={(value) =>
+              updateAddress("latitude", parseCoordinateInput(value, -90, 90))
+            }
+            onLongitudeChange={(value) =>
+              updateAddress("longitude", parseCoordinateInput(value, -180, 180))
+            }
+          />
 
           <label className="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground w-fit">
             <input

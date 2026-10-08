@@ -56,7 +56,7 @@ type PropertyLocationMapPickerProps = {
 };
 
 function parseCoordinate(value: string) {
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined || value === null || !String(value).trim()) return undefined;
 
   const parsed = Number(String(value).replace(",", "."));
 
@@ -116,7 +116,9 @@ export function PropertyLocationMapPicker({
   const parsedLongitude = parseCoordinate(longitude);
 
   const hasCoordinates =
-    parsedLatitude !== undefined && parsedLongitude !== undefined;
+    parsedLatitude !== undefined && parsedLongitude !== undefined &&
+    parsedLatitude >= -90 && parsedLatitude <= 90 &&
+    parsedLongitude >= -180 && parsedLongitude <= 180;
 
   const center: [number, number] = hasCoordinates
     ? [parsedLatitude, parsedLongitude]
